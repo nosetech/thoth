@@ -1,0 +1,15 @@
+# thoth 設定ファイル。config/config.yaml にコピーして使う（config.yaml は git 管理しない）。
+# 記載のない項目は既定値で動く。変更の反映にはアプリの再起動が必要。
+instance: default
+
+backend:
+  port: 8900   # backend は常に 127.0.0.1 で待ち受ける（変更不可）
+
+frontend:
+  port: 3900
+
+db:
+  path: ../data/thoth.db   # backend/ 基準の相対パス
+
+log:
+  dir: ../logs             # backend/ 基準の相対パス

@@ -1,0 +1,16 @@
+.serena/
+.env
+config/config.yaml
+.dev-run/
+data/
+logs/
+__pycache__/
+.venv/
+.pytest_cache/
+.ruff_cache/
+node_modules/
+.next/
+*.tsbuildinfo
+next-env.d.ts
+.DS_Store
+*.egg-info/
