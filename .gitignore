@@ -14,3 +14,5 @@ node_modules/
 next-env.d.ts
 .DS_Store
 *.egg-info/
+config/apps.yaml
+config/apps.d/
