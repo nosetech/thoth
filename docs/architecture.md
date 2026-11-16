@@ -12,7 +12,7 @@ backend 8900 / frontend 3900。既存アプリ（deep-tracker 8700/3700、focara
 ## 構成
 - backend は `127.0.0.1` 固定。frontend の `app/api/[...path]/route.ts` が実行時に `BACKEND_URL` へ中継する（ビルド時固定の `rewrites` は使わない）。
 - 起動時に設定読込 → DB 作成 → 自動マイグレーション → uvicorn 起動。
-- 以降の設計は GitHub issue（#2 アプリ管理モデルなど）で追加する。
+- アプリ管理モデルは下記「アプリ管理モデル（#2）」を参照。以降の設計は GitHub issue で追加する。
 
 # アプリ管理モデル（#2）
 
@@ -50,35 +50,38 @@ backend 8900 / frontend 3900。既存アプリ（deep-tracker 8700/3700、focara
 | `workdir` | path | | 省略時 App の `workdir`。相対パスは App の `workdir` 基準 |
 | `env` | map[str,str] | | App の `env` にマージ（Service 側が優先） |
 | `log_paths` | list[path] | | 監視対象ログ（エラー検知・表示用） |
-| `depends_on` | list[str] | | 同一アプリ内の先に起動すべきサービス `id`。循環はエラー |
+| `depends_on` | list[str] | | 同一アプリ内の先に起動すべきサービス `id`。循環はエラー。起動は依存順、**停止は起動の逆順**（依存されている側を最後に止める）。再起動は停止→起動の順で行う |
 
 ### `kind: process`
 | キー | 型 | 必須 | 説明 |
 |---|---|---|---|
-| `start` | list[str] | ○ | 起動コマンド（argv 配列。シェル経由にしない）。`${VAR}` は env / モード変数のみ展開 |
-| `stop` | list[str] | | 停止コマンド。省略時は PID に SIGTERM → `stop_timeout` 後 SIGKILL |
+| `start` | list[str] | ○ | 起動コマンド（argv 配列。シェル経由にしない）。`${VAR}` は許可リスト（`LAN_IP` / `TAILSCALE_IP`）と定義済み `env` のみ展開 |
+| `stop` | list[str] | | 停止コマンド。省略時は**プロセスグループ**に SIGTERM → `stop_timeout` 後 SIGKILL（`npm run start` など子プロセスを残さないため、thoth は `start_new_session` で起動し、グループ ID を保持する） |
 | `stop_timeout` | int(秒) | | 既定 10 |
 | `port` | int | | 待ち受けポート（死活判定・競合検知に使用） |
 | `pid_file` | path | | あれば PID の正とする。無ければ thoth が起動したプロセスの PID を `data/` 配下に保持 |
 | `healthcheck` | Healthcheck | | 省略時は `port` があれば `tcp`、無ければ PID 生存のみ |
 
+**PID の扱い**: thoth 再起動後に保持済み PID を使う際は、PID の再利用による誤 kill を防ぐため、プロセスの起動時刻とコマンドラインを記録値と照合し、不一致なら「停止済み」とみなして kill しない。`pid_file` 指定時も同様に照合する。
+
 ### `kind: scheduled`（launchd）
 | キー | 型 | 必須 | 説明 |
 |---|---|---|---|
 | `launchd_label` | str | ○ | `launchctl` で参照するラベル |
-| `plist` | path | | 指定時は load/unload 対象のパス |
+| `plist` | path | | 指定時は `bootstrap` 対象のパス |
+| `launchd_domain` | str | | launchd のドメイン。既定 `gui/<thoth を実行するユーザーの uid>`（`launchctl bootstrap/bootout/print` の対象） |
 | `schedule` | str | | 表示用の説明（例: `毎日 03:00`）。実際のスケジュールは plist が正 |
 | `expected_interval` | int(秒) | | 最終実行がこの間隔 ×1.5 を超えたら「遅延」と判定 |
 
-起動/停止は `launchctl load/unload`（または `bootstrap/bootout`）、状態は `launchctl print` / 終了コードと `log_paths` から判定する。
+起動/停止は `launchctl bootstrap/bootout`（`launchd_domain` 対象。`load/unload` は非推奨のため使わない）、状態は `launchctl print` / 終了コードと `log_paths` から判定する。
 
 ### Healthcheck
 | キー | 型 | 既定 | 説明 |
 |---|---|---|---|
 | `type` | enum | | `tcp` / `http` / `command` |
-| `url` | str | | `http` 用。ホストは `127.0.0.1` / `localhost` 等のループバックに限定 |
+| `url` | str | | `http` 用。ホストはループバック（`127.0.0.1` / `localhost`）、または `${LAN_IP}` / `${TAILSCALE_IP}`（選択中モードで解決されたもの）に限定。LAN/VPN モードでアプリが当該 IP にのみ bind する場合に対応する |
 | `expect_status` | list[int] | `[200]` | `http` の期待ステータス |
-| `command` | list[str] | | `command` 用。終了コード 0 を正常とする |
+| `command` | list[str] | | `command` 用。終了コード 0 を正常とする。argv 配列・`shell=False`。作業ディレクトリと環境変数は Service と同じ（`workdir` / マージ済み `env`、選択中モードの変数を含む） |
 | `interval` | int(秒) | 30 | 実行間隔 |
 | `timeout` | int(秒) | 5 | 1 回のタイムアウト |
 | `start_grace` | int(秒) | 30 | 起動直後の猶予（この間の失敗は「起動中」扱い） |
@@ -93,8 +96,8 @@ modes:
   lan:  { env: { LAN_IP: "${LAN_IP}" } }     # LAN 内に公開
   vpn:  { env: { TAILSCALE_IP: "${TAILSCALE_IP}" } }
 ```
-- 排他ルール（既存アプリを踏襲）: **`LAN_IP` と `TAILSCALE_IP` は同時に設定しない**。`lan` と `vpn` は排他で、両方の変数が解決された場合は起動を拒否しエラーとする。
-- `LAN_IP` / `TAILSCALE_IP` の値は thoth 起動時の環境変数から取得し、YAML に IP を直書きしない。未解決のモードは選択不可（UI で無効表示）。
+- 排他ルール（既存アプリを踏襲）: **`LAN_IP` と `TAILSCALE_IP` は同時に設定しない**。判定は**選択中のモードが参照する変数**に対して行う。モード選択後に Service へ渡す環境変数（App/Service の `env` とモードの `env` をマージした結果）に `LAN_IP` と `TAILSCALE_IP` の両方が含まれる場合は、起動を拒否しエラーとする。`local` 選択時は両変数を Service に渡さない（thoth の環境に両方設定されていても拒否しない）。
+- `${VAR}` の展開元は、thoth プロセスの環境変数のうち**許可リスト `LAN_IP` / `TAILSCALE_IP` のみ**と、当該 App/Service の `env` で定義したキーとする（それ以外の thoth の環境変数は参照不可、未定義はエラー）。`LAN_IP` / `TAILSCALE_IP` の値は thoth 起動時の環境変数から取得し、YAML に IP を直書きしない。未解決のモードは選択不可（UI で無効表示）。
 - thoth 自身の backend は常に `127.0.0.1` 固定（#1）。モードは監視対象アプリにのみ作用する。
 - 現在のモードは状態として DB に保存する（登録定義ではない）。
 
@@ -132,11 +135,11 @@ apps:
 
 ### ファイル配置
 - 本体設定 `config/config.yaml` に加え、アプリ定義は `config/apps.yaml`（雛形 `config/apps.yaml.example` をコミット、実ファイルは git 管理しない）。最上位キーは `apps:`。
-- アプリ数が増えた場合は `config/apps.d/*.yaml` を辞書順で追加読み込みできる（`apps.yaml` と同形式。`id` 重複はエラー）。
+- アプリ数が増えた場合は `config/apps.d/*.yaml` を辞書順で追加読み込みできる（`apps.yaml` と同形式。`id` 重複はエラー。`apps.d/` も git 管理しない）。
 
 ### 読み込みと検証
 - backend 起動時に pydantic モデル（`extra="forbid"`）で読み込む。**未知キー・型不一致・必須欠落はエラー**（#1 の設定ローダー方針と同じ）。
-- 追加の意味検証: `id` 形式と一意性、`depends_on` の存在・循環、`kind` ごとの必須キー、ポート範囲（1–65535）と**アプリ・サービス間のポート重複**、`workdir` の存在、`healthcheck.url` のループバック限定、`start` / `stop` が空配列でないこと。エラーはファイル名・パス（例 `apps[0].services[1].port`）付きで列挙する。
+- 追加の意味検証: `id` 形式と一意性、`depends_on` の存在・循環、`kind` ごとの必須キー、ポート範囲（1–65535）と**アプリ・サービス間のポート重複**、`workdir` の存在、`healthcheck.url` のホスト限定（ループバック／`${LAN_IP}`・`${TAILSCALE_IP}`）、`start` / `stop` が空配列でないこと。エラーはファイル名・パス（例 `apps[0].services[1].port`）付きで列挙する。
 - 起動時に検証失敗の場合は backend を起動しない（既存定義を壊したまま動かさない）。
 
 ### 再読み込み
@@ -153,9 +156,10 @@ apps:
 
 ## セキュリティ方針
 - **起動コマンドは設定ファイルでの登録のみ**。API は `app_id` / `service_id` と操作種別（start/stop/restart）しか受け取らず、コマンド文字列・環境変数・作業ディレクトリを入力として受け付けない。
-- コマンドは argv 配列で `shell=False` 実行。`${VAR}` 展開は許可リスト（env / モード変数）のみで、展開結果をシェルに渡さない。
+- コマンドは argv 配列で `shell=False` 実行。`${VAR}` 展開は許可リスト（`LAN_IP` / `TAILSCALE_IP` と、定義済み `env` のキー）のみで、展開結果をシェルに渡さない。
+- **CSRF 対策**: 変更系 API（POST/PUT/PATCH/DELETE）は、`Origin`（無ければ `Referer`）が thoth の frontend オリジン（`127.0.0.1:<frontend.port>` / `localhost:<frontend.port>`）と一致しない場合は 403 とし、あわせてカスタムヘッダ `X-Thoth-Request: 1` を必須とする。悪意ある Web ページからのクロスサイト POST で start/stop/reload を実行させないため。frontend の Route Handler がヘッダを付与して中継する。認証（#25）導入前の最低限の防御であり、認証導入後も維持する。
 - 設定ファイル自体が実行権限を持つため、`config/` は所有者のみ書込可（`0600`/`0700` を推奨、起動時に group/other 書込可なら警告）。
-- ログ・API 応答では環境変数の値を既定でマスクする（キー名のみ表示）。ヘルスチェック URL はループバックに限定し、SSRF を防ぐ。
+- ログ・API 応答では環境変数の値を既定でマスクする（キー名のみ表示）。ヘルスチェック URL のホストはループバックと thoth 自身の許可リスト変数に限定し、SSRF を防ぐ。
 - **認証（#25 との関係）**: 現段階の thoth は `127.0.0.1` 固定でローカル利用のみのため認証は設けない。ただし start/stop/reload など変更系 API は、認証導入時に保護対象として一括で扱えるよう、`/api/apps/{id}/services/{id}/(start|stop|restart)` と `/api/config/reload` に集約する。LAN/VPN 公開や認証方式は #25 で決定し、それまでは thoth 自身を `127.0.0.1` 以外へ公開しない。
 
 ## 将来拡張
