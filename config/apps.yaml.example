@@ -1,0 +1,22 @@
+# thoth 監視対象アプリ定義（設計: docs/architecture.md「アプリ管理モデル」）。
+# config/apps.yaml にコピーして使う（apps.yaml は git 管理しない）。
+apps:
+  - id: sample-app
+    name: Sample App
+    workdir: ~/repo/sample-app
+    modes:
+      local: {}
+      lan: { env: { LAN_IP: "${LAN_IP}" } }
+      vpn: { env: { TAILSCALE_IP: "${TAILSCALE_IP}" } }
+    services:
+      - id: backend
+        kind: process
+        start: [uv, run, python, -m, app.main]
+        workdir: backend
+        port: 8000
+        healthcheck: { type: http, url: "http://127.0.0.1:8000/api/health" }
+      - id: daily-job
+        kind: scheduled
+        launchd_label: com.example.sample-app.daily
+        schedule: "毎日 03:00"
+        expected_interval: 86400
