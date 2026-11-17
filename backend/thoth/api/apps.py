@@ -4,6 +4,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from thoth.api.csrf import require_same_origin
 from thoth.api.deps import get_registry_holder
 from thoth.apps.loader import AppsConfigError
 from thoth.apps.registry import RegistryHolder
@@ -79,7 +80,7 @@ def get_app(app_id: str, holder: HolderDep) -> AppOut:
     return _app_out(app)
 
 
-@router.post("/config/reload")
+@router.post("/config/reload", dependencies=[Depends(require_same_origin)])
 def reload_config(holder: HolderDep) -> dict[str, Any]:
     try:
         reg = holder.reload()

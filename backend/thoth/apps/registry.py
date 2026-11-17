@@ -9,10 +9,11 @@ from thoth.apps.loader import AppRegistry, load_apps
 
 
 class RegistryHolder:
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, *, required: bool = False):
         self._path = path
+        self._required = required
         self._lock = threading.Lock()
-        self._registry = load_apps(path)  # 不正なら AppsConfigError
+        self._registry = load_apps(path, required=required)  # 不正なら AppsConfigError
 
     @property
     def registry(self) -> AppRegistry:
@@ -20,7 +21,7 @@ class RegistryHolder:
 
     def reload(self) -> AppRegistry:
         """全体を検証し、成功時のみ差し替える。失敗時は AppsConfigError で旧定義を維持。"""
-        new = load_apps(self._path)
-        with self._lock:
+        with self._lock:  # 読み込みもロック内で行い、並行 reload の順序を保証する
+            new = load_apps(self._path, required=self._required)
             self._registry = new
         return new

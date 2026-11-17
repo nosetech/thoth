@@ -9,6 +9,7 @@ from typing import Any
 
 import yaml
 
+DEFAULT_APPS_PATH = "../config/apps.yaml"
 DEFAULT_CONFIG_PATH = "../config/config.yaml"  # backend/ 基準
 CONFIG_ENV = "THOTH_CONFIG"
 BACKEND_ROOT = Path(__file__).resolve().parent.parent
@@ -40,7 +41,7 @@ class LogConfig:
 
 @dataclass(frozen=True)
 class AppsConfig:
-    path: str = "../config/apps.yaml"
+    path: str | None = None  # 未指定時は DEFAULT_APPS_PATH（無くても可）。明示時は必須
 
 
 @dataclass(frozen=True)
@@ -103,7 +104,7 @@ def parse_config(raw: Any) -> Config:
         frontend=FrontendConfig(port=_port(f.get("port", d.frontend.port), "frontend.port")),
         db=DbConfig(path=_nonempty_str(db.get("path", d.db.path), "db.path")),
         log=LogConfig(dir=_nonempty_str(lg.get("dir", d.log.dir), "log.dir")),
-        apps=AppsConfig(path=_nonempty_str(ap.get("path", d.apps.path), "apps.path")),
+        apps=AppsConfig(path=_nonempty_str(ap["path"], "apps.path") if "path" in ap else None),
     )
 
 

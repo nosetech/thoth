@@ -9,6 +9,8 @@ from thoth.apps.registry import RegistryHolder
 from thoth.config import ConfigError, parse_config
 from thoth.main import app
 
+CSRF = {"Origin": "http://127.0.0.1:3900", "X-Thoth-Request": "1"}
+
 
 def write(path, body):
     path.write_text(textwrap.dedent(body), encoding="utf-8")
@@ -148,6 +150,7 @@ def test_apps_config_unknown_key():
     with pytest.raises(ConfigError):
         parse_config({"apps": {"bogus": 1}})
     assert parse_config({"apps": {"path": "x.yaml"}}).apps.path == "x.yaml"
+    assert parse_config({}).apps.path is None
 
 
 @pytest.fixture
@@ -155,7 +158,7 @@ def client(tmp_path):
     p = write(tmp_path / "apps.yaml", valid_yaml(tmp_path))
     holder = RegistryHolder(p)
     app.dependency_overrides[get_registry_holder] = lambda: holder
-    yield TestClient(app), p
+    yield TestClient(app, headers=CSRF), p
     app.dependency_overrides.clear()
 
 
@@ -180,3 +183,31 @@ def test_api_reload(client):
     assert res.status_code == 422
     assert res.json()["detail"]["errors"]
     assert c.get("/api/apps").json()[0]["id"] == "sample"
+
+
+def test_reload_requires_same_origin_and_header(client):
+    c, _ = client
+    bare = TestClient(app)
+    assert bare.post("/api/config/reload").status_code == 403
+    assert bare.post("/api/config/reload", headers={"X-Thoth-Request": "1"}).status_code == 403
+    evil = {"Origin": "http://evil.example.com", "X-Thoth-Request": "1"}
+    assert bare.post("/api/config/reload", headers=evil).status_code == 403
+    ok = {"Referer": "http://localhost:3900/x", "X-Thoth-Request": "1"}
+    assert bare.post("/api/config/reload", headers=ok).status_code == 200
+
+
+def test_explicit_path_missing_is_error(tmp_path):
+    with pytest.raises(AppsConfigError):
+        RegistryHolder(tmp_path / "nope.yaml", required=True)
+    assert RegistryHolder(tmp_path / "nope.yaml").registry.apps == ()
+
+
+def test_example_file_is_valid(tmp_path):
+    from pathlib import Path
+
+    src = (Path(__file__).resolve().parents[2] / "config" / "apps.yaml.example").read_text()
+    (tmp_path / "svc").mkdir()
+    src = src.replace("~/repo/sample-app", str(tmp_path)).replace(
+        "workdir: backend", "workdir: svc"
+    )
+    assert load_apps(write(tmp_path / "apps.yaml", src)).get("sample-app")

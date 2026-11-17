@@ -129,13 +129,15 @@ def _find_cycle(graph: dict[str, list[str]]) -> list[str] | None:
     return None
 
 
-def load_apps(path: str | Path) -> AppRegistry:
+def load_apps(path: str | Path, *, required: bool = False) -> AppRegistry:
     """``apps.yaml`` と同階層の ``apps.d/*.yaml``（辞書順）を読み込む。
 
     ファイルが無ければ空の定義。不正な場合は全エラーをまとめた AppsConfigError。
     """
     p = Path(path)
     files: list[Path] = []
+    if required and not p.exists():
+        raise AppsConfigError([f"{p}: アプリ定義ファイルが見つかりません"])
     if p.exists():
         if not p.is_file():
             raise AppsConfigError([f"{p}: ファイルではありません"])

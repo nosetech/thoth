@@ -36,3 +36,13 @@ test("buildForwardHeaders skips content-type without body", () => {
     accept: "y",
   });
 });
+
+test("変更系では origin を転送し X-Thoth-Request を付ける", () => {
+  const out = buildForwardHeaders(new Headers({ origin: "http://127.0.0.1:3900" }), false, "POST");
+  assert.equal(out["origin"], "http://127.0.0.1:3900");
+  assert.equal(out["x-thoth-request"], "1");
+});
+
+test("GET では X-Thoth-Request を付けない", () => {
+  assert.equal(buildForwardHeaders(new Headers(), false, "GET")["x-thoth-request"], undefined);
+});
