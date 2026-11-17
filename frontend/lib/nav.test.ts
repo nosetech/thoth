@@ -20,3 +20,9 @@ test("NAV_ITEMS: href が一意", () => {
   const hrefs = NAV_ITEMS.map((i) => i.href);
   assert.equal(new Set(hrefs).size, hrefs.length);
 });
+
+test("isActive: 末尾スラッシュ付きと深い階層", () => {
+  assert.equal(isActive("/logs/", "/logs"), true);
+  assert.equal(isActive("/logs/a/b", "/logs"), true);
+  assert.equal(isActive("/", "/apps"), false);
+});

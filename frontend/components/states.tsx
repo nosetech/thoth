@@ -20,7 +20,7 @@ function StateBox({
       className={`flex flex-col items-center gap-3 border border-dashed px-6 py-12 text-center ${toneClass}`}
     >
       <p className="text-lg font-bold">{title}</p>
-      {description && <p className="text-foreground/70 max-w-prose">{description}</p>}
+      {description && <p className="text-foreground/80 max-w-prose">{description}</p>}
       {children}
     </div>
   );

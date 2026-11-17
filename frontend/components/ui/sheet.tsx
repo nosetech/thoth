@@ -24,11 +24,15 @@ function SheetRoot({ children, ...rest }: React.PropsWithChildren<Partial<dialog
   return <SheetContext.Provider value={api}>{children}</SheetContext.Provider>;
 }
 
-function SheetTrigger({ children, className }: React.PropsWithChildren<{ className?: string }>) {
+function SheetTrigger({
+  children,
+  className,
+  "aria-label": ariaLabel,
+}: React.PropsWithChildren<{ className?: string; "aria-label"?: string }>) {
   const api = useSheetContext();
 
   return (
-    <Button {...api.getTriggerProps()} className={className}>
+    <Button {...api.getTriggerProps()} aria-label={ariaLabel} className={className}>
       {children}
     </Button>
   );
@@ -108,18 +112,25 @@ function SheetDescription({
   );
 }
 
-function SheetCloseTrigger({ className }: { className?: string }) {
+function SheetCloseTrigger({
+  className,
+  "aria-label": ariaLabel = "閉じる",
+}: {
+  className?: string;
+  "aria-label"?: string;
+}) {
   const api = useSheetContext();
 
   return (
     <button
       {...api.getCloseTriggerProps()}
+      aria-label={ariaLabel}
       className={twMerge([
-        "absolute right-4 top-4 opacity-70 hover:opacity-100 cursor-pointer",
+        "absolute right-4 top-4 opacity-70 hover:opacity-100 cursor-pointer outline-none focus-visible:outline-solid focus-visible:outline-2 focus-visible:outline-primary",
         className,
       ])}
     >
-      <X className="size-4" />
+      <X className="size-4" aria-hidden />
     </button>
   );
 }
