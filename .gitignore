@@ -4,6 +4,7 @@ config/config.yaml
 .dev-run/
 data/
 logs/
+!frontend/app/logs/
 __pycache__/
 .venv/
 .pytest_cache/
