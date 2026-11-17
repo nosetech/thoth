@@ -8,8 +8,6 @@ Create Date: 2026-11-16
 import sqlalchemy as sa
 from alembic import op
 
-from thoth.db.models import UtcDateTime
-
 revision = "0001"
 down_revision = None
 branch_labels = None
@@ -21,7 +19,7 @@ def upgrade() -> None:
         "schema_info",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("note", sa.String(), nullable=False),
-        sa.Column("created_at", UtcDateTime(), nullable=False),
+        sa.Column("created_at", sa.DateTime(), nullable=False),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_schema_info")),
     )
 
