@@ -47,3 +47,28 @@ def test_naive_datetime_rejected(engine):
         s.add(SchemaInfo(id=1, note="x", created_at=datetime(2026, 1, 1)))
         with pytest.raises(Exception, match="naive"):
             s.commit()
+
+
+def test_wal_set_once_and_persisted(tmp_path):
+    path = tmp_path / "sub" / "w.db"
+    e = create_db_engine(path)
+    e.dispose()
+    # WAL は DB ファイルに永続化されるので、素の接続でも wal になっている
+    import sqlite3
+
+    conn = sqlite3.connect(path)
+    try:
+        assert conn.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+    finally:
+        conn.close()
+
+
+def test_memory_db_skips_wal_and_dir_creation(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    e = create_db_engine(":memory:")
+    with e.connect() as c:
+        assert c.execute(text("PRAGMA journal_mode")).scalar() == "memory"
+        assert c.execute(text("PRAGMA foreign_keys")).scalar() == 1
+        assert c.execute(text("PRAGMA busy_timeout")).scalar() == 5000
+    e.dispose()
+    assert list(tmp_path.iterdir()) == []
