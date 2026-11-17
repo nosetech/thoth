@@ -3,8 +3,32 @@ import pytest
 from thoth.config import Config, ConfigError, load_config, parse_config
 
 
-def test_defaults_when_file_missing(tmp_path):
-    assert load_config(tmp_path / "none.yaml") == Config()
+def test_explicit_path_missing_raises(tmp_path):
+    with pytest.raises(ConfigError):
+        load_config(tmp_path / "none.yaml")
+
+
+def test_env_path_missing_raises(tmp_path, monkeypatch):
+    monkeypatch.setenv("THOTH_CONFIG", str(tmp_path / "none.yaml"))
+    with pytest.raises(ConfigError):
+        load_config()
+
+
+def test_explicit_path_directory_raises(tmp_path):
+    with pytest.raises(ConfigError):
+        load_config(tmp_path)
+
+
+def test_empty_env_raises(monkeypatch):
+    monkeypatch.setenv("THOTH_CONFIG", "")
+    with pytest.raises(ConfigError):
+        load_config()
+
+
+def test_default_path_missing_uses_defaults(tmp_path, monkeypatch):
+    monkeypatch.delenv("THOTH_CONFIG", raising=False)
+    monkeypatch.setattr("thoth.config.DEFAULT_CONFIG_PATH", str(tmp_path / "none.yaml"))
+    assert load_config() == Config()
 
 
 def test_override(tmp_path):
