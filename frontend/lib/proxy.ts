@@ -10,7 +10,11 @@ export function buildBackendUrl(base: string, segments: string[], search: string
 const FORWARD_HEADERS = ["accept", "content-type", "origin", "referer"] as const;
 
 /** 存在するヘッダのみ転送する。 */
-export function buildForwardHeaders(src: Headers, hasBody: boolean, method?: string): Record<string, string> {
+export function buildForwardHeaders(
+  src: Headers,
+  hasBody: boolean,
+  method?: string,
+): Record<string, string> {
   const out: Record<string, string> = {};
   for (const name of FORWARD_HEADERS) {
     if (name === "content-type" && !hasBody) continue;
