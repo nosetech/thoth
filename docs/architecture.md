@@ -164,3 +164,11 @@ apps:
 
 ## 将来拡張
 - `kind: cloud`: スキーマ上は予約。想定は `provider` / `endpoint` / `healthcheck`（http）/ 認証情報参照（env 名のみ）で、起動/停止は対象外（監視のみ）。実装時に別 issue で設計する。
+
+# フロントエンドのテーマとレイアウト（#3）
+
+- UI は [cosmic-ui](https://github.com/rizznme/cosmic-ui)（サイバーパンク調）。npm パッケージではなく shadcn 方式で、コンポーネントのソースを `frontend/components/ui/` に取り込んでいる（`button` / `frame` / `sheet` / `portal` / `presence`。Next.js 用に `"use client"` を付与）。取り込み元は `rizznme/cosmic-ui` の commit `fd06957`（2026-11-17 時点の HEAD）。追加が必要なら同リポジトリの `src/components/ui/` から同様に取り込み、ここの commit を更新する。npm の `cosmic-ui` は無関係の別パッケージなので使わない。
+- スタイルは Tailwind CSS v4（`@tailwindcss/postcss`）。配色トークンは `app/globals.css` の `@theme`（`--color-primary` / `--color-accent` / `--color-background` など）。
+- **ライト/ダーク切替は設けない（ダーク固定）**。サイバーパンク調はダーク前提のデザインで、1 名利用のため切替の必要性が低い。必要になれば `data-theme` + CSS 変数方式で別 issue とする。
+- `AppShell`（`components/AppShell.tsx`）が全画面共通。ドロワーは制御コンポーネントで、リンク遷移時と md 以上へのリサイズ時に閉じる。キーボード操作のため `focus-visible` のフォーカス表示と「本文へスキップ」リンクを持つ。`md`（768px）以上は固定サイドバー、未満はヘッダー + ドロワー（`Sheet`）。ナビ項目は `lib/nav.ts`。
+- 状態コンポーネント（`components/states.tsx`）: `LoadingState` / `EmptyState` / `ErrorState`。`app/loading.tsx` / `error.tsx` / `not-found.tsx` から使う。通常状態は各画面の本体。

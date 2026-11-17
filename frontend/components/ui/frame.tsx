@@ -1,0 +1,120 @@
+"use client";
+
+import { useRef, useEffect, useLayoutEffect } from "react";
+import { twMerge } from "tailwind-merge";
+import { type Paths, setupSvgRenderer } from "@left4code/svg-renderer";
+
+// useLayoutEffect draws before the browser paints, so there's never a frame
+// where the text is visible but the border isn't. useEffect (paints, then
+// draws) is what causes that flash. useLayoutEffect warns loudly when it
+// runs during SSR though, so fall back to useEffect there - the server render
+// never has a browser to paint into anyway.
+const useIsomorphicLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
+
+const pathsCache = new Map<string, Paths>();
+
+/**
+ * `JSON.parse` a path definition, reusing the same array for the same string.
+ *
+ * `Frame` keys its effect on the `paths` reference, so parsing inline in a
+ * render body hands it a brand-new array every render and tears the renderer
+ * down and back up each time. Landing that in the middle of an enter animation
+ * makes the new renderer miss `animationstart`, leaving the frame drawn for the
+ * mid-animation (zoomed) box. Going through the cache keeps the reference
+ * stable, so the effect runs once per mount.
+ */
+function parsePaths(json: string): Paths {
+  const cached = pathsCache.get(json);
+  if (cached) return cached;
+
+  // Path strings are static in practice; the cap only guards a caller that
+  // generates them on the fly from ever growing the cache without bound.
+  if (pathsCache.size > 200) pathsCache.clear();
+
+  const parsed = JSON.parse(json) as Paths;
+  pathsCache.set(json, parsed);
+  return parsed;
+}
+
+/**
+ * Several Frames designed together as one composite (e.g. a topbar made of
+ * a left wedge, a pill, a search box, and a right wedge), keyed by name.
+ * Each entry is exactly a `Paths` array, unchanged - a set is just a bundle
+ * of them for convenience, not a different rendering concept: every path's
+ * position is already relative to its own Frame's box (that's what the
+ * "100% - N" expressions mean), never to its siblings, so picking one out
+ * of the set to render is no different than passing that entry as `paths`
+ * directly.
+ */
+type FrameSet = Record<string, Paths>;
+
+const frameSetCache = new Map<string, FrameSet>();
+
+/** Same caching rationale as parsePaths(), for a `frames` bundle instead. */
+function parseFrameSet(json: string): FrameSet {
+  const cached = frameSetCache.get(json);
+  if (cached) return cached;
+
+  if (frameSetCache.size > 200) frameSetCache.clear();
+
+  const parsed = JSON.parse(json) as FrameSet;
+  frameSetCache.set(json, parsed);
+  return parsed;
+}
+
+function Frame({
+  className,
+  paths,
+  frames,
+  frame,
+  enableBackdropBlur,
+  enableViewBox,
+  ...props
+}: {
+  /** A single Frame's paths. Omit this and pass `frames` + `frame` instead
+   *  to pick one out of a set designed together. */
+  paths?: Paths;
+  /** A bundle from parseFrameSet()/exported by the editor's "Export all
+   *  Frames" - pair with `frame` to pick which one this instance renders. */
+  frames?: FrameSet;
+  /** Which key of `frames` to render. Ignored if `paths` is given. */
+  frame?: string;
+  enableBackdropBlur?: boolean;
+  enableViewBox?: boolean;
+} & React.ComponentProps<"svg">) {
+  const resolvedPaths = paths ?? (frames && frame ? frames[frame] : undefined);
+  const svgRef = useRef<SVGSVGElement | null>(null);
+
+  useIsomorphicLayoutEffect(() => {
+    if (svgRef.current && svgRef.current.parentElement && resolvedPaths) {
+      const instance = setupSvgRenderer({
+        el: svgRef.current,
+        paths: resolvedPaths,
+        enableBackdropBlur,
+        enableViewBox,
+      });
+
+      return () => instance.destroy();
+    }
+  }, [resolvedPaths]);
+
+  return (
+    <svg
+      {...props}
+      className={twMerge(["absolute inset-0 size-full pointer-events-none", className])}
+      xmlns="http://www.w3.org/2000/svg"
+      ref={svgRef}
+      // Everything inside this element is drawn imperatively through the ref
+      // after mount, so the server markup is never meant to match what React
+      // would render. Without this, any pre-hydration paint of the frame is
+      // reported as a mismatch on every island.
+      suppressHydrationWarning
+      data-frame-paths={JSON.stringify(resolvedPaths)}
+      data-frame-backdrop-blur={enableBackdropBlur || undefined}
+      data-frame-view-box={enableViewBox || undefined}
+    />
+  );
+}
+
+export { Frame, parsePaths, parseFrameSet };
+export type { FrameSet };

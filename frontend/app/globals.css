@@ -1,0 +1,78 @@
+/* thoth テーマ: cosmic-ui (https://github.com/rizznme/cosmic-ui) の配色トークンを
+   ベースにしたサイバーパンク調のダークテーマ。ライト/ダーク切替は設けない
+   （docs/architecture.md「フロントエンドのテーマ」参照）。 */
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@theme {
+  --color-primary: rgb(20, 160, 230);
+  --color-primary-foreground: rgb(255, 255, 255);
+  --color-accent: rgb(202, 65, 34);
+  --color-accent-foreground: rgb(255, 255, 255);
+  --color-secondary: --alpha(
+    color-mix(in oklab, var(--color-primary), var(--color-white) 50%) / 60%
+  );
+  --color-secondary-foreground: color-mix(in oklab, var(--color-primary), var(--color-white) 70%);
+  --color-destructive: var(--color-rose-500);
+  --color-destructive-foreground: rgb(255, 255, 255);
+  --color-success: var(--color-teal-500);
+  --color-success-foreground: rgb(255, 255, 255);
+  --color-background: #020618;
+  --color-foreground: var(--color-white);
+
+  --font-orbitron: var(--font-orbitron-loaded), "Hiragino Sans", "Noto Sans JP", sans-serif;
+  --font-roboto: var(--font-roboto-loaded), "Hiragino Sans", "Noto Sans JP", sans-serif;
+}
+
+body {
+  @apply bg-background overflow-x-hidden bg-fixed antialiased text-sm font-orbitron text-foreground tracking-wide;
+  background-image:
+    repeating-linear-gradient(
+      0deg,
+      --alpha(var(--color-foreground) / 5%) 0,
+      --alpha(var(--color-foreground) / 5%) 1px,
+      transparent 1px,
+      transparent 35rem
+    ),
+    repeating-linear-gradient(
+      90deg,
+      --alpha(var(--color-foreground) / 5%) 0,
+      --alpha(var(--color-foreground) / 5%) 1px,
+      transparent 1px,
+      transparent 35rem
+    );
+}
+
+/* Themed scrollbars everywhere (page body, sidebar list, search results,
+   code blocks): a thin bar with no track box, invisible until the scrolling
+   element itself is hovered, matching the sharp/no-radius look used
+   throughout instead of the OS default. `scrollbar-color` covers Firefox
+   (no transition support there, so hover is an instant swap); the
+   `::-webkit-scrollbar-thumb` rules give Chrome/Safari/Edge the smooth
+   fade via a real `transition`. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+*:hover {
+  scrollbar-color: --alpha(var(--color-foreground) / 10%) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: transparent;
+  transition: background-color 0.2s ease;
+}
+
+*:hover::-webkit-scrollbar-thumb {
+  background-color: --alpha(var(--color-foreground) / 10%);
+}
