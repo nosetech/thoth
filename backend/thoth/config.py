@@ -105,14 +105,18 @@ def load_config(path: str | os.PathLike[str] | None = None) -> Config:
     暗黙のデフォルトパスが無い場合のみ既定値で動く。引数や THOTH_CONFIG で
     明示したパスが存在しない場合・不正な設定は ConfigError。
     """
-    explicit = path or os.environ.get(CONFIG_ENV)
-    p = Path(explicit or DEFAULT_CONFIG_PATH)
+    explicit = path if path is not None else os.environ.get(CONFIG_ENV)
+    if explicit is not None and not str(explicit).strip():
+        raise ConfigError("設定ファイルのパスが空です")
+    p = Path(explicit if explicit is not None else DEFAULT_CONFIG_PATH)
     if not p.is_absolute():
         p = (BACKEND_ROOT / p).resolve()
-    if not p.is_file():
-        if explicit:
+    if not p.exists():
+        if explicit is not None:
             raise ConfigError(f"設定ファイルが見つかりません: {p}")
         return Config()
+    if not p.is_file():
+        raise ConfigError(f"設定ファイルがファイルではありません: {p}")
     try:
         raw = yaml.safe_load(p.read_text(encoding="utf-8"))
     except yaml.YAMLError as e:
