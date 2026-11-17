@@ -100,11 +100,18 @@ def parse_config(raw: Any) -> Config:
 
 
 def load_config(path: str | os.PathLike[str] | None = None) -> Config:
-    """設定を読み込む。ファイルが無ければ既定値で動く。不正な設定は ConfigError。"""
-    p = Path(path or os.environ.get(CONFIG_ENV) or DEFAULT_CONFIG_PATH)
+    """設定を読み込む。
+
+    暗黙のデフォルトパスが無い場合のみ既定値で動く。引数や THOTH_CONFIG で
+    明示したパスが存在しない場合・不正な設定は ConfigError。
+    """
+    explicit = path or os.environ.get(CONFIG_ENV)
+    p = Path(explicit or DEFAULT_CONFIG_PATH)
     if not p.is_absolute():
         p = (BACKEND_ROOT / p).resolve()
-    if not p.exists():
+    if not p.is_file():
+        if explicit:
+            raise ConfigError(f"設定ファイルが見つかりません: {p}")
         return Config()
     try:
         raw = yaml.safe_load(p.read_text(encoding="utf-8"))
