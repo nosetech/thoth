@@ -39,12 +39,18 @@ class LogConfig:
 
 
 @dataclass(frozen=True)
+class AppsConfig:
+    path: str = "../config/apps.yaml"
+
+
+@dataclass(frozen=True)
 class Config:
     instance: str = "default"
     backend: BackendConfig = field(default_factory=BackendConfig)
     frontend: FrontendConfig = field(default_factory=FrontendConfig)
     db: DbConfig = field(default_factory=DbConfig)
     log: LogConfig = field(default_factory=LogConfig)
+    apps: AppsConfig = field(default_factory=AppsConfig)
 
     def resolve_path(self, value: str) -> Path:
         """相対パスは backend/ 基準で解決する。"""
@@ -81,7 +87,7 @@ def parse_config(raw: Any) -> Config:
         raw = {}
     if not isinstance(raw, dict):
         raise ConfigError("設定ファイルのトップレベルはマッピングで指定してください")
-    unknown = set(raw) - {"instance", "backend", "frontend", "db", "log"}
+    unknown = set(raw) - {"instance", "backend", "frontend", "db", "log", "apps"}
     if unknown:
         raise ConfigError(f"未知のキーがあります: {sorted(unknown)}")
 
@@ -90,12 +96,14 @@ def parse_config(raw: Any) -> Config:
     f = _section(raw.get("frontend"), "frontend", FrontendConfig)
     db = _section(raw.get("db"), "db", DbConfig)
     lg = _section(raw.get("log"), "log", LogConfig)
+    ap = _section(raw.get("apps"), "apps", AppsConfig)
     return Config(
         instance=_nonempty_str(raw.get("instance", d.instance), "instance"),
         backend=BackendConfig(port=_port(b.get("port", d.backend.port), "backend.port")),
         frontend=FrontendConfig(port=_port(f.get("port", d.frontend.port), "frontend.port")),
         db=DbConfig(path=_nonempty_str(db.get("path", d.db.path), "db.path")),
         log=LogConfig(dir=_nonempty_str(lg.get("dir", d.log.dir), "log.dir")),
+        apps=AppsConfig(path=_nonempty_str(ap.get("path", d.apps.path), "apps.path")),
     )
 
 

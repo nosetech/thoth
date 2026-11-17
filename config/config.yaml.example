@@ -13,3 +13,6 @@ db:
 
 log:
   dir: ../logs             # backend/ 基準の相対パス
+
+apps:
+  path: ../config/apps.yaml   # アプリ定義。同階層の apps.d/*.yaml も読む。backend/ 基準

@@ -6,6 +6,7 @@ from fastapi import Depends
 from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
+from thoth.apps.registry import RegistryHolder
 from thoth.config import Config, load_config
 from thoth.db.session import create_db_engine
 
@@ -19,6 +20,12 @@ def get_config() -> Config:
 def get_engine() -> Engine:
     cfg = get_config()
     return create_db_engine(cfg.resolve_path(cfg.db.path))
+
+
+@lru_cache
+def get_registry_holder() -> RegistryHolder:
+    cfg = get_config()
+    return RegistryHolder(cfg.resolve_path(cfg.apps.path))
 
 
 def get_session() -> Iterator[Session]:

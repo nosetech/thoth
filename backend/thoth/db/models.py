@@ -40,3 +40,18 @@ class SchemaInfo(Base):
     created_at: Mapped[datetime] = mapped_column(
         UtcDateTime, nullable=False, default=lambda: datetime.now(UTC)
     )
+
+
+class AppState(Base):
+    """アプリごとの状態（現在の起動モード）。登録定義は YAML が正なので複製しない。
+
+    app_id は YAML 側の id を文字列で参照する（外部キーなし。YAML から削除されても残す）。
+    """
+
+    __tablename__ = "app_state"
+
+    app_id: Mapped[str] = mapped_column(String, primary_key=True)
+    mode: Mapped[str] = mapped_column(String, nullable=False, default="local")
+    updated_at: Mapped[datetime] = mapped_column(
+        UtcDateTime, nullable=False, default=lambda: datetime.now(UTC)
+    )
