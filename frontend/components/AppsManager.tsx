@@ -12,7 +12,6 @@ import {
   IcHalf,
   IcInfo,
   IcLock,
-  IcPause,
   IcPlay,
   IcPlug,
   IcRefresh,
@@ -28,6 +27,7 @@ import {
   ResultSheet,
   type BulkView,
 } from "@/components/apps/ResultSheet";
+import { useShellStatus } from "@/components/shell/ShellStatus";
 import { apiFetch } from "@/lib/api";
 import {
   appStatus,
@@ -615,6 +615,25 @@ export function AppsManager() {
 
   const retrying = refreshing && screen === "error";
 
+  // 共通シェル（サイドバー・モバイルヘッダー）へ更新状態を公開する
+  const { setStatus } = useShellStatus();
+  const errorCount = counts.error ?? 0;
+  useEffect(() => {
+    setStatus({
+      lastUpdated,
+      refreshing,
+      paused,
+      pollErr,
+      cycle,
+      active: screen === "normal",
+      errorCount,
+      connError: screen === "error",
+      onRefresh: () => void refreshRef.current(true),
+      onTogglePause: () => setPaused((p) => !p),
+    });
+  }, [setStatus, lastUpdated, refreshing, paused, pollErr, cycle, screen, errorCount]);
+  useEffect(() => () => setStatus(null), [setStatus]);
+
   const head = (
     <div className="page-head">
       <div>
@@ -745,50 +764,6 @@ export function AppsManager() {
           </div>
         )}
 
-        <div className="refresh">
-          <div className="refresh-info" title={`最終更新 ${fmtTime(lastUpdated)}`}>
-            <span
-              className={`live ${paused ? "is-paused" : pollErr ? "is-err" : ""}`}
-              aria-hidden="true"
-            />
-            <div>
-              <span>
-                最終更新 <time className="mono">{fmtTime(lastUpdated)}</time>
-              </span>
-              <span className="dim small">
-                {paused ? "自動更新は一時停止中" : "5 秒ごとに自動更新"}
-              </span>
-            </div>
-          </div>
-          <div className="refresh-btns">
-            <button
-              type="button"
-              className="btn"
-              onClick={() => void doRefresh(true)}
-              disabled={refreshing}
-              aria-label="今すぐ更新"
-              title="今すぐ更新"
-            >
-              {refreshing ? <Spinner /> : <IcRefresh size={16} />}
-              <span>更新</span>
-            </button>
-            <button
-              type="button"
-              className="btn"
-              aria-pressed={paused}
-              aria-label={paused ? "自動更新を再開" : "自動更新を一時停止"}
-              title={paused ? "自動更新を再開" : "自動更新を一時停止"}
-              onClick={() => setPaused((p) => !p)}
-            >
-              {paused ? <IcPlay size={14} /> : <IcPause size={16} />}
-              <span>{paused ? "再開" : "一時停止"}</span>
-            </button>
-          </div>
-          <div className="pollbar-track" aria-hidden="true">
-            <div key={`${cycle}-${paused}`} className={`pollbar ${paused ? "is-paused" : ""}`} />
-          </div>
-        </div>
-
         <section className="card bulk" aria-labelledby="bulk-t">
           <div className="bulk-head">
             <h2 id="bulk-t" className="h2">
@@ -904,7 +879,7 @@ export function AppsManager() {
   }
 
   return (
-    <div className="ta">
+    <div>
       {head}
       {body}
       <div className="toasts" aria-live="polite">

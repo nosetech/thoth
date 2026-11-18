@@ -103,88 +103,6 @@
     transform: rotate(360deg);
   }
 }
-/* 更新コントロール（デザインではサイドバー内）。ページ内に配置するための追加分 */
-.ta .refresh {
-  position: relative;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 10px 12px 12px;
-  margin-bottom: 14px;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--panel);
-  overflow: hidden;
-}
-.ta .refresh-info {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 13px;
-}
-.ta .refresh-info > div {
-  display: flex;
-  flex-direction: column;
-  line-height: 1.4;
-}
-.ta .refresh-btns {
-  display: flex;
-  gap: 6px;
-}
-.ta .live {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  background: var(--success);
-  animation: ta-pulse 2s infinite;
-}
-.ta .live.is-paused {
-  background: var(--dim);
-  animation: none;
-}
-.ta .live.is-err {
-  background: var(--danger);
-  animation: none;
-  box-shadow: 0 0 8px var(--danger);
-}
-@keyframes ta-pulse {
-  0% {
-    box-shadow: 0 0 0 0 rgba(20, 184, 166, 0.6);
-  }
-  70% {
-    box-shadow: 0 0 0 8px rgba(20, 184, 166, 0);
-  }
-  100% {
-    box-shadow: 0 0 0 0 rgba(20, 184, 166, 0);
-  }
-}
-.ta .pollbar-track {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 2px;
-  background: rgba(20, 160, 230, 0.1);
-}
-.ta .pollbar {
-  height: 100%;
-  background: var(--primary);
-  box-shadow: 0 0 8px var(--primary);
-  width: 0;
-  animation: ta-fill 5s linear forwards;
-}
-.ta .pollbar.is-paused {
-  animation: none;
-  width: 0;
-}
-@keyframes ta-fill {
-  to {
-    width: 100%;
-  }
-}
 /* ---------- buttons ---------- */
 .ta .btn {
   display: inline-flex;
@@ -1399,7 +1317,4 @@
 }
 .ta details[open] > summary .chev {
   transform: rotate(90deg);
-}
-.ta {
-  padding-bottom: 80px;
 }

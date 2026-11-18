@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { JetBrains_Mono, Orbitron, Roboto } from "next/font/google";
 import { AppShell } from "@/components/AppShell";
 import "./globals.css";
+import "./shell.css";
 
 const orbitron = Orbitron({
   subsets: ["latin"],

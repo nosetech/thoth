@@ -1,13 +1,14 @@
 export type NavItem = {
   href: string;
   label: string;
+  icon: "grid" | "apps" | "log" | "cpu";
 };
 
 export const NAV_ITEMS: readonly NavItem[] = [
-  { href: "/", label: "ダッシュボード" },
-  { href: "/apps", label: "アプリ" },
-  { href: "/logs", label: "ログ" },
-  { href: "/resources", label: "リソース" },
+  { href: "/", label: "DASHBOARD", icon: "grid" },
+  { href: "/apps", label: "APPS", icon: "apps" },
+  { href: "/logs", label: "LOGS", icon: "log" },
+  { href: "/resources", label: "RESOURCES", icon: "cpu" },
 ];
 
 /** 現在のパスがナビ項目に該当するか。`/` は完全一致、それ以外は配下も含む。 */

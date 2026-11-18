@@ -155,3 +155,44 @@ export function Spinner({ size = 16 }: { size?: number }) {
     </svg>
   );
 }
+
+export const IcMenu = (p: P) => (
+  <I {...p}>
+    <path d="M4 7h16M4 12h16M4 17h16" />
+  </I>
+);
+export const IcGrid = (p: P) => (
+  <I {...p}>
+    <rect x="4" y="4" width="7" height="7" rx="1.5" />
+    <rect x="13" y="4" width="7" height="7" rx="1.5" />
+    <rect x="4" y="13" width="7" height="7" rx="1.5" />
+    <rect x="13" y="13" width="7" height="7" rx="1.5" />
+  </I>
+);
+export const IcLog = (p: P) => (
+  <I {...p}>
+    <path d="M6 3h9l4 4v14H6z" />
+    <path d="M9 11h7M9 15h7M9 7h3" />
+  </I>
+);
+export const IcCpu = (p: P) => (
+  <I {...p}>
+    <rect x="6" y="6" width="12" height="12" rx="2" />
+    <rect x="9.5" y="9.5" width="5" height="5" />
+    <path d="M9 2.5V6M15 2.5V6M9 18v3.5M15 18v3.5M2.5 9H6M2.5 15H6M18 9h3.5M18 15h3.5" />
+  </I>
+);
+export const IcCollapse = (p: P) => (
+  <I {...p}>
+    <rect x="3.5" y="4" width="17" height="16" rx="2.5" />
+    <path d="M9 4v16" />
+    <path d="M15.5 10l-2 2 2 2" />
+  </I>
+);
+export const IcExpand = (p: P) => (
+  <I {...p}>
+    <rect x="3.5" y="4" width="17" height="16" rx="2.5" />
+    <path d="M9 4v16" />
+    <path d="M13.5 10l2 2-2 2" />
+  </I>
+);
