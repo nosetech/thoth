@@ -2,27 +2,26 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { ShellStatusProvider, useShellStatus } from "@/components/shell/ShellStatus";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import {
-  IcApps,
-  IcCollapse,
-  IcCpu,
-  IcExpand,
-  IcGrid,
-  IcLog,
-  IcMenu,
-  IcPause,
-  IcPlay,
-  IcRefresh,
-  IcX,
-  Spinner,
-} from "@/components/apps/icons";
-import { fmtTime } from "@/components/apps/ResultSheet";
-import { useModal } from "@/components/apps/Modal";
+  AppWindow,
+  Cpu,
+  LayoutDashboard,
+  Menu,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Pause,
+  Play,
+  RefreshCw,
+  ScrollText,
+} from "lucide-react";
+import { Spinner, fmtTime } from "@/components/apps/parts";
+import { ShellStatusProvider, useShellStatus } from "@/components/shell/ShellStatus";
+import { Button } from "@/components/ui/button";
+import { SheetCloseTrigger, SheetContent, SheetRoot, SheetTitle } from "@/components/ui/sheet";
 import { NAV_ITEMS, isActive } from "@/lib/nav";
 
-const NAV_ICON = { grid: IcGrid, apps: IcApps, log: IcLog, cpu: IcCpu };
+const NAV_ICON = { grid: LayoutDashboard, apps: AppWindow, log: ScrollText, cpu: Cpu };
 
 /** サイドバーの折りたたみ状態（localStorage。SSR・取得不可時は展開）。 */
 const COLLAPSE_KEY = "thoth.sidebar";
@@ -45,15 +44,20 @@ function subscribe(l: () => void) {
   return () => void listeners.delete(l);
 }
 
-/** ブランドロゴ（デザインの「月冠」）。 */
+const CTRL_BTN = "px-3 py-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-40";
+
+/** ブランドロゴ。 */
 function Logo({ size = 30 }: { size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 32 32" aria-hidden="true" focusable="false">
-      <path d="M3.5 13 A12.5 12.5 0 0 0 28.5 13 A12.5 9 0 0 1 3.5 13 Z" fill="rgb(20,160,230)" />
-      <circle cx="16" cy="11" r="6.6" fill="rgb(202,65,34)" />
+      <path
+        d="M3.5 13 A12.5 12.5 0 0 0 28.5 13 A12.5 9 0 0 1 3.5 13 Z"
+        fill="var(--color-primary)"
+      />
+      <circle cx="16" cy="11" r="6.6" fill="var(--color-accent)" />
       <path
         d="M16 26.5 V30.5 M11 30.5 H21"
-        stroke="rgb(20,160,230)"
+        stroke="var(--color-primary)"
         strokeWidth="1.8"
         strokeLinecap="round"
       />
@@ -61,58 +65,59 @@ function Logo({ size = 30 }: { size?: number }) {
   );
 }
 
-function RefreshControl() {
-  const { status } = useShellStatus();
-  const s = status;
+function RefreshControl({ compact }: { compact?: boolean }) {
+  const { status: s } = useShellStatus();
   const enabled = !!s?.active;
+  const liveColor = s?.paused ? "bg-foreground/40" : s?.pollErr ? "bg-destructive" : "bg-success";
   return (
-    <div className="refresh">
-      <div className="refresh-info" title={`最終更新 ${fmtTime(s?.lastUpdated ?? null)}`}>
-        <span
-          className={`live ${s?.paused ? "is-paused" : s?.pollErr ? "is-err" : ""}`}
-          aria-hidden="true"
-        />
-        <div>
-          <span>
-            最終更新 <time className="mono">{fmtTime(s?.lastUpdated ?? null)}</time>
-          </span>
-          <span className="dim small">
-            {s?.paused ? "自動更新は一時停止中" : "5 秒ごとに自動更新"}
-          </span>
+    <div className="flex flex-col gap-2">
+      {!compact && (
+        <div
+          className="flex items-center gap-2 text-xs"
+          title={`最終更新 ${fmtTime(s?.lastUpdated ?? null)}`}
+        >
+          <span
+            className={`size-2 shrink-0 rounded-full ${liveColor} ${s?.paused ? "" : "animate-pulse"}`}
+            aria-hidden="true"
+          />
+          <div className="flex flex-col">
+            <span>
+              最終更新 <time>{fmtTime(s?.lastUpdated ?? null)}</time>
+            </span>
+            <span className="text-foreground/60">
+              {s?.paused ? "自動更新は一時停止中" : "5 秒ごとに自動更新"}
+            </span>
+          </div>
         </div>
-      </div>
-      <div className="refresh-btns">
-        <button
+      )}
+      <div className={`flex gap-2 ${compact ? "flex-col" : ""}`}>
+        <Button
           type="button"
-          className="btn"
+          className={CTRL_BTN}
           onClick={s?.onRefresh}
           disabled={!enabled || s?.refreshing}
           aria-label="今すぐ更新"
           title="今すぐ更新"
         >
-          {s?.refreshing ? <Spinner /> : <IcRefresh size={16} />}
-          <span>更新</span>
-        </button>
-        <button
+          {s?.refreshing ? <Spinner /> : <RefreshCw size={14} aria-hidden="true" />}
+          {!compact && <span className="ms-1.5">更新</span>}
+        </Button>
+        <Button
           type="button"
-          className="btn"
+          className={CTRL_BTN}
           aria-pressed={!!s?.paused}
           aria-label={s?.paused ? "自動更新を再開" : "自動更新を一時停止"}
           title={s?.paused ? "自動更新を再開" : "自動更新を一時停止"}
           onClick={s?.onTogglePause}
           disabled={!enabled}
         >
-          {s?.paused ? <IcPlay size={14} /> : <IcPause size={16} />}
-          <span>{s?.paused ? "再開" : "一時停止"}</span>
-        </button>
-      </div>
-      <div className="pollbar-track" aria-hidden="true">
-        {enabled && s && (
-          <div
-            key={`${s.cycle}-${s.paused}`}
-            className={`pollbar ${s.paused ? "is-paused" : ""}`}
-          />
-        )}
+          {s?.paused ? (
+            <Play size={14} aria-hidden="true" />
+          ) : (
+            <Pause size={14} aria-hidden="true" />
+          )}
+          {!compact && <span className="ms-1.5">{s?.paused ? "再開" : "一時停止"}</span>}
+        </Button>
       </div>
     </div>
   );
@@ -124,6 +129,8 @@ function useConn() {
   if (status?.pollErr) return { state: "warn", label: "更新に失敗中" } as const;
   return { state: "ok", label: "バックエンド接続中" } as const;
 }
+
+const CONN_DOT = { ok: "bg-success", warn: "bg-amber-400", err: "bg-destructive" } as const;
 
 function SideContent({
   pathname,
@@ -140,29 +147,35 @@ function SideContent({
   const conn = useConn();
   return (
     <>
-      <div className="brand">
+      <div className="flex items-center gap-3 px-1">
         <Logo />
-        <div>
-          <span className="brand-name">THOTH</span>
-        </div>
+        {!collapsed && <span className="text-lg font-bold tracking-widest">THOTH</span>}
       </div>
-      <nav aria-label="メイン">
-        <ul className="nav">
+      <nav aria-label="メイン" className="mt-6 flex-1">
+        <ul className="flex flex-col gap-1">
           {NAV_ITEMS.map((n) => {
             const Icon = NAV_ICON[n.icon];
+            const active = isActive(pathname, n.href);
             return (
               <li key={n.href}>
                 <Link
                   href={n.href}
-                  className="nav-item"
-                  aria-current={isActive(pathname, n.href) ? "page" : undefined}
+                  aria-current={active ? "page" : undefined}
                   onClick={onNavigate}
                   title={collapsed ? n.label : undefined}
+                  className={`focus-visible:outline-primary flex items-center gap-3 border-l-2 px-3 py-2 outline-none focus-visible:outline-2 ${
+                    active
+                      ? "border-l-primary bg-primary/15 text-primary-foreground"
+                      : "text-foreground/70 hover:bg-primary/10 border-l-transparent"
+                  }`}
                 >
-                  <Icon size={19} />
-                  <span className="nav-text">{n.label}</span>
+                  <Icon size={19} aria-hidden="true" />
+                  {!collapsed && <span>{n.label}</span>}
                   {n.href === "/apps" && (status?.errorCount ?? 0) > 0 && (
-                    <span className="nav-count" aria-label={`エラー ${status?.errorCount} 件`}>
+                    <span
+                      className="bg-destructive text-destructive-foreground ms-auto px-1.5 text-xs"
+                      aria-label={`エラー ${status?.errorCount} 件`}
+                    >
                       {status?.errorCount}
                     </span>
                   )}
@@ -172,72 +185,40 @@ function SideContent({
           })}
         </ul>
       </nav>
-      <div className="side-bottom">
-        <RefreshControl />
-        <div className={`conn conn-${conn.state}`} title={collapsed ? conn.label : undefined}>
-          <span className="conn-dot" aria-hidden="true" />
-          <div className="conn-text">
-            <strong>{conn.label}</strong>
-            <span className="mono">/api</span>
-          </div>
+      <div className="mt-6 flex flex-col gap-4">
+        <RefreshControl compact={collapsed} />
+        <div className="flex items-center gap-2 text-xs" title={collapsed ? conn.label : undefined}>
+          <span
+            className={`size-2 shrink-0 rounded-full ${CONN_DOT[conn.state]}`}
+            aria-hidden="true"
+          />
+          {!collapsed && (
+            <div className="flex flex-col">
+              <strong>{conn.label}</strong>
+              <span className="text-foreground/60">/api</span>
+            </div>
+          )}
         </div>
         {onToggle && (
           <button
             type="button"
-            className="btn btn-ghost collapse-btn"
+            className="text-foreground/70 hover:text-foreground focus-visible:outline-primary flex cursor-pointer items-center gap-3 px-3 py-2 text-xs outline-none focus-visible:outline-2"
             onClick={onToggle}
             aria-expanded={!collapsed}
             aria-controls="sidebar"
             aria-label={collapsed ? "メニューを展開" : "メニューを折りたたむ"}
             title={collapsed ? "メニューを展開" : "メニューを折りたたむ"}
           >
-            {collapsed ? <IcExpand size={19} /> : <IcCollapse size={19} />}
-            <span className="collapse-text">折りたたむ</span>
+            {collapsed ? (
+              <PanelLeftOpen size={19} aria-hidden="true" />
+            ) : (
+              <PanelLeftClose size={19} aria-hidden="true" />
+            )}
+            {!collapsed && <span>折りたたむ</span>}
           </button>
         )}
       </div>
     </>
-  );
-}
-
-function Drawer({
-  open,
-  onClose,
-  children,
-}: {
-  open: boolean;
-  onClose: () => void;
-  children: React.ReactNode;
-}) {
-  const panel = useRef<HTMLDivElement>(null);
-  useModal(open, onClose, panel);
-  if (!open) return null;
-  return (
-    <div
-      className="overlay drawer-overlay"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <div
-        ref={panel}
-        id="drawer"
-        className="drawer"
-        role="dialog"
-        aria-modal="true"
-        aria-label="ナビゲーション"
-      >
-        <button
-          type="button"
-          className="btn btn-ghost icon drawer-close"
-          aria-label="メニューを閉じる"
-          onClick={onClose}
-        >
-          <IcX />
-        </button>
-        {children}
-      </div>
-    </div>
   );
 }
 
@@ -259,55 +240,74 @@ function Shell({ children }: { children: React.ReactNode }) {
   }, []);
 
   return (
-    <div className={`ta shell ${collapsed ? "is-collapsed" : ""}`}>
-      <a className="skip" href="#main">
+    <div>
+      <a
+        className="bg-background text-primary focus:border-primary sr-only z-50 p-2 focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:border"
+        href="#main"
+      >
         本文へスキップ
       </a>
-      <aside id="sidebar" className="sidebar" aria-label="サイドバー">
+      <aside
+        id="sidebar"
+        aria-label="サイドバー"
+        className={`border-primary/30 bg-background/90 fixed inset-y-0 left-0 z-30 hidden flex-col overflow-y-auto border-r p-4 backdrop-blur md:flex ${
+          collapsed ? "w-20" : "w-64"
+        }`}
+      >
         <SideContent pathname={pathname} collapsed={collapsed} onToggle={toggleCollapsed} />
       </aside>
-      <header className="mheader">
+      <header className="border-primary/30 bg-background/90 sticky top-0 z-30 flex items-center gap-3 border-b px-4 py-2 backdrop-blur md:hidden">
         <button
           type="button"
-          className="btn btn-ghost icon"
+          className="focus-visible:outline-primary cursor-pointer p-1 outline-none focus-visible:outline-2"
           aria-label="メニューを開く"
           aria-expanded={drawer}
           aria-controls="drawer"
           onClick={() => setDrawer(true)}
         >
-          <IcMenu />
+          <Menu aria-hidden="true" />
         </button>
-        <div className="brand brand-sm">
-          <Logo size={28} />
-          <span className="brand-name">THOTH</span>
-        </div>
-        <span className={`conn-dot conn-${conn.state}`} role="img" aria-label={conn.label} />
+        <Logo size={28} />
+        <span className="font-bold tracking-widest">THOTH</span>
+        <span
+          className={`ms-auto size-2 rounded-full ${CONN_DOT[conn.state]}`}
+          role="img"
+          aria-label={conn.label}
+        />
         {status?.active && (
-          <time className="mh-time mono" aria-label={`最終更新 ${fmtTime(status.lastUpdated)}`}>
+          <time className="text-xs" aria-label={`最終更新 ${fmtTime(status.lastUpdated)}`}>
             {fmtTime(status.lastUpdated)}
           </time>
         )}
         <button
           type="button"
-          className="btn btn-ghost icon"
+          className="focus-visible:outline-primary cursor-pointer p-1 outline-none focus-visible:outline-2 disabled:opacity-40"
           aria-label="今すぐ更新"
           onClick={status?.onRefresh}
           disabled={!status?.active || status.refreshing}
         >
-          {status?.refreshing ? <Spinner /> : <IcRefresh />}
+          {status?.refreshing ? <Spinner size={20} /> : <RefreshCw aria-hidden="true" />}
         </button>
       </header>
-      <Drawer open={drawer} onClose={() => setDrawer(false)}>
-        <SideContent pathname={pathname} onNavigate={() => setDrawer(false)} />
-      </Drawer>
-      <main id="main" className="main" tabIndex={-1}>
+      <SheetRoot open={drawer} onOpenChange={({ open }) => setDrawer(open)}>
+        <SheetContent side="left" className="flex max-w-xs flex-col">
+          <SheetTitle className="sr-only">ナビゲーション</SheetTitle>
+          <SheetCloseTrigger aria-label="メニューを閉じる" />
+          <SideContent pathname={pathname} onNavigate={() => setDrawer(false)} />
+        </SheetContent>
+      </SheetRoot>
+      <main
+        id="main"
+        tabIndex={-1}
+        className={`px-4 py-6 outline-none md:px-8 ${collapsed ? "md:ms-20" : "md:ms-64"}`}
+      >
         {children}
       </main>
     </div>
   );
 }
 
-/** 全画面共通のレイアウト（デザイン Artifact 準拠）。md 以上は固定サイドバー、未満はヘッダー + ドロワー。 */
+/** 全画面共通のレイアウト。md 以上は固定サイドバー、未満はヘッダー + ドロワー（Sheet）。 */
 export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <ShellStatusProvider>
