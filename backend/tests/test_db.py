@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from thoth.db.base import Base
 from thoth.db.migrate import upgrade_db
-from thoth.db.models import SchemaInfo
+from thoth.db.models import AppState, SchemaInfo
 from thoth.db.session import create_db_engine
 
 
@@ -72,3 +72,10 @@ def test_memory_db_skips_wal_and_dir_creation(tmp_path, monkeypatch):
         assert c.execute(text("PRAGMA busy_timeout")).scalar() == 5000
     e.dispose()
     assert list(tmp_path.iterdir()) == []
+
+
+def test_app_state_roundtrip(engine):
+    with Session(engine) as s:
+        s.add(AppState(app_id="x", mode="lan"))
+        s.commit()
+        assert s.get(AppState, "x").mode == "lan"

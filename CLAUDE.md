@@ -11,3 +11,4 @@ thoth: ローカルPCのWebアプリを管理・監視するアプリ。設計�
 - 設定は YAML（`config/config.yaml`、未知キーはエラー）。アプリ登録定義も YAML を正とし、DB は状態・履歴用（#2）。
 - 日時は UTC 保存（`UtcDateTime`）。マイグレーションは `0001_*.py` の連番で、`test_migration_matches_models` で乖離を検出する。
 - ブランチ・PR・コミット規約は `CONTRIBUTING.md`。
+- アプリ定義は `config/apps.yaml`（＋同階層 `apps.d/*.yaml`、`config.yaml` の `apps.path` で変更可。明示したパスが無ければエラー）。`GET /api/apps`、`POST /api/config/reload`（変更系は Origin/Referer と `X-Thoth-Request: 1` が必須）。

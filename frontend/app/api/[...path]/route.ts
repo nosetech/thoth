@@ -15,7 +15,7 @@ async function proxy(req: NextRequest, ctx: { params: Promise<{ path: string[] }
   try {
     const res = await fetch(url, {
       method: req.method,
-      headers: buildForwardHeaders(req.headers, hasBody),
+      headers: buildForwardHeaders(req.headers, hasBody, req.method),
       body: body === "" ? undefined : body,
       cache: "no-store",
     });
