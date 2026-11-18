@@ -6,3 +6,4 @@
 - CI（`.github/workflows/ci.yml`）が通ること。検査コマンドは README を参照。
 - 設計方針は `docs/architecture.md` に従う。
 - マイグレーション（`backend/thoth/db/migrations/versions/`）は `thoth.db.models` などアプリのコードを import しない。型は `sa.DateTime()` など固定の SQLAlchemy 型で書く（モデル変更で過去のマイグレーションの挙動が変わらないようにするため）。モデルとの一致は `test_migration_matches_models` で担保する。
+- 画面は Claude の Artifacts にあるデザインを**正**として実装し、独自解釈でレイアウト・配色・インタラクションを変えない。デザインの参照方法と注意点は `CLAUDE.md` の「画面デザインの実装ルール」に従う。

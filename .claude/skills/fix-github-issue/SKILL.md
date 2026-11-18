@@ -21,6 +21,14 @@ GitHub issueを分析して対応してください: issue番号 $ARGUMENTS
    - DB スキーマに関わる場合は `backend/thoth/db/models.py` と Alembic マイグレーション（`backend/thoth/db/migrations/versions/`）も対象になる
    - 設定（`config/*.yaml.example`）、`docs/architecture.md`、README / CLAUDE.md に修正すべき箇所があるかも特定する
 
+3.5. **UI に関わる issue の場合**
+   - CLAUDE.md「画面デザインの実装ルール」の Artifacts URL について、`Artifact` ツール（`action: "list"`、`scope: "files"` でファイル一覧 → `action: "read"` で対象ファイル）でデザインの実ソースを直接取得し、対象コンポーネントの色・余白・border-radius・フォント・アニメーションをそのまま読み取る（`WebFetch` は認証エラーで使えない）。取得結果が途中で欠けていないか確認する
+   - `Artifact` ツールが使えない場合（未ログイン・ツール無効等）はフォールバックしない。プレビューのクリック操作でのコード選択やズームした目視での推測は不正確になりうるため代替にせず、その旨を明記してその場で作業を停止し、人間に確認を求める
+   - `docs/` の設計文書や issue にはレイアウトの要件しか無く、色・アイコン・文言・操作フローの指定はデザインそのものにあることに注意する。デザインと `docs/` や issue に齟齬があれば、実装前に人間に確認する
+   - デザインのモック固有のもの（ダミーデータ、デモ用スイッチ、仮画面）は実装に含めない
+   - **対象画面のデザインがまだ存在しない場合**、自分でレイアウトや配色を創作しない。`Artifact` ツールで既存デザインを直接編集せず、人間に Claude のチャットでのデザイン作成を依頼する。`docs/design-prompt-ui-*.md` と同じ形式でチャットに貼る要件をまとめて提示し、既存のデザインを上書きせず作業ブランチ名を使った新規ファイルとして作るよう指示に明記する。作成後は `list` で新規ファイルの存在を確認し、`read` で取得して実装を進めてよい
+   - 実装後は `mcp__claude-in-chrome__*` で完成品とデザインのプレビューを並べ、見た目が一致することを確認する（セルフレビュー用途。値の取得には使わない）
+
 4. **コードの実装**
    - 着手時に issue のラベルを `status:todo` から `status:in-progress` に変更する（`gh issue edit <番号> --remove-label status:todo --add-label status:in-progress`）
    - `develop` から `feature/<issue番号>-<概要>` ブランチを切って実装する（`master` / `develop` に直接コミットしない）
@@ -30,6 +38,7 @@ GitHub issueを分析して対応してください: issue番号 $ARGUMENTS
      - 日時は UTC 保存（`UtcDateTime`）。モデルを変更したらマイグレーションを追加し、`test_migration_matches_models` を通す
      - 監視対象アプリの起動コマンドは設定ファイルでの登録のみ。API から任意のコマンド・環境変数・作業ディレクトリを受け取らない。実行は argv 配列・`shell=False`
      - ログ・API 応答に環境変数の値や機密情報を出さない
+   - UI に関わる場合は、ステップ 3.5 で取得したデザインに忠実に実装する。実装後に同じブラウザ操作ツールで実装結果とデザインを見比べ、配色・アイコン・文言などの細部が一致することを確認する
    - 実装後、変更した側のチェックを通す
      - backend（`backend/` で実行）: `uv run ruff format . && uv run ruff check .`、`uv run pytest`
      - frontend（`frontend/` で実行）: `npm run lint`、`npm run typecheck`、`npm test`、必要に応じて `env -u NODE_ENV npm run build`
@@ -39,6 +48,7 @@ GitHub issueを分析して対応してください: issue番号 $ARGUMENTS
    - コミットメッセージ・PR 説明の末尾の署名は、システムから指示された形式に従う
    - `develop` ブランチへのプルリクエストを作成する
    - PR の説明に対応 issue を独立した行で `Closes #<issue番号>` と記載する（直後に日本語を続けない）
+   - UI に関わる場合は、参照したデザイン（URL・ファイル）と、デザインに合わせた点・合わせられなかった点を PR 説明に書く
    - issue のラベルを `status:in-review` に変更する
    - **PR 作成完了をコンソールに表示する**
 
@@ -49,7 +59,9 @@ GitHub issueを分析して対応してください: issue番号 $ARGUMENTS
 
 7. **コードレビュー実施**
    - `code-reviewer` エージェント（`.claude/agents/code-reviewer.md`）を Agent ツールで呼び出し、PR 番号を渡して実装コードの詳細レビューを実施させる
+   - UI に関わる場合は、デザインに忠実に実装されているかのレビューも含まれる。ステップ 3.5 で新規デザインファイルを使った場合は、そのパスもエージェントに伝える
    - 重大な問題、改善提案を含むレビュー結果を取得する
+   - 「デザイン照合は未実施」と報告された場合は、原因（`Artifact` ツールが使えない等）を確認して人間に伝える
 
 8. **レビュー結果をプルリクエストに投稿**
    - 取得したレビュー結果を、以下のコマンドでプルリクエストに投稿する（長い場合は `--body-file` を使う）：

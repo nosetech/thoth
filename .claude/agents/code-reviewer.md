@@ -48,6 +48,13 @@ tools: Read, Grep, Glob, Bash
 - `/api/*` は Route Handler が実行時に `BACKEND_URL` へ中継する構成（`rewrites` 不使用）を壊していないか。API クライアントが非 JSON のエラー応答でも `ApiError` を返すか。
 - 検証: `cd frontend && npm run lint && npm run typecheck && npm test`（必要に応じて `env -u NODE_ENV npm run build`。シェルが `NODE_ENV=development` だとビルドが失敗する）
 
+### 画面デザインへの忠実性（UI に関わる変更の場合）
+
+- CLAUDE.md「画面デザインの実装ルール」の Artifacts を**正**として、`Artifact` ツール（`list` → `read`）でデザインの実ソースを取得し、色・余白・border-radius・フォント・アニメーション・文言・状態遷移・操作フロー（確認ダイアログの既定フォーカスなど）が一致しているか照合する。独自解釈による変更を指摘する。
+- デザイン固有のダミーデータ・デモ用スイッチ・仮画面が実装に混入していないか。
+- 指示に新規デザインファイルのパスがあれば、それを照合対象にする。
+- `Artifact` ツールが使えない場合は代替（ブラウザでの目視推測など）にせず、「デザイン照合は未実施」と報告にその理由とともに明記する。照合した場合は、確認したファイルと範囲を書く。
+
 ### CI・運用
 
 - `.github/workflows/ci.yml` の変更が、変更検知（backend / frontend）の構成を壊していないか。
