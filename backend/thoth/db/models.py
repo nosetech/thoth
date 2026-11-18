@@ -6,7 +6,7 @@
 
 from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, Integer, String
+from sqlalchemy import DateTime, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import TypeDecorator
 
@@ -55,3 +55,37 @@ class AppState(Base):
     updated_at: Mapped[datetime] = mapped_column(
         UtcDateTime, nullable=False, default=lambda: datetime.now(UTC)
     )
+
+
+class ServiceProcess(Base):
+    """thoth が把握しているプロセス（thoth 再起動後も PID を引き継ぐための状態）。
+
+    PID の再利用による誤 kill を防ぐため、起動時刻（ps の lstart）を照合に使う。
+    app_id / service_id は YAML 側の id を文字列で参照する（外部キーなし）。
+    """
+
+    __tablename__ = "service_process"
+
+    app_id: Mapped[str] = mapped_column(String, primary_key=True)
+    service_id: Mapped[str] = mapped_column(String, primary_key=True)
+    pid: Mapped[int] = mapped_column(Integer, nullable=False)
+    proc_started: Mapped[str] = mapped_column(String, nullable=False)
+    command: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    recorded_at: Mapped[datetime] = mapped_column(
+        UtcDateTime, nullable=False, default=lambda: datetime.now(UTC)
+    )
+
+
+class ServiceOperation(Base):
+    """起動・停止・再起動の実行結果の履歴（環境変数の値は記録しない）。"""
+
+    __tablename__ = "service_operation"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    app_id: Mapped[str] = mapped_column(String, nullable=False)
+    service_id: Mapped[str] = mapped_column(String, nullable=False)
+    action: Mapped[str] = mapped_column(String, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False)  # succeeded / failed / rejected
+    message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    started_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False)
+    finished_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False)

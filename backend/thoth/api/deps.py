@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from thoth.apps.registry import RegistryHolder
 from thoth.config import DEFAULT_APPS_PATH, Config, load_config
 from thoth.db.session import create_db_engine
+from thoth.process.manager import ProcessManager
 
 
 @lru_cache
@@ -27,6 +28,12 @@ def get_registry_holder() -> RegistryHolder:
     cfg = get_config()
     explicit = cfg.apps.path is not None
     return RegistryHolder(cfg.resolve_path(cfg.apps.path or DEFAULT_APPS_PATH), required=explicit)
+
+
+@lru_cache
+def get_process_manager() -> ProcessManager:
+    cfg = get_config()
+    return ProcessManager(get_engine(), cfg.resolve_path(cfg.log.dir))
 
 
 def get_session() -> Iterator[Session]:

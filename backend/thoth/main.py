@@ -1,7 +1,7 @@
 import uvicorn
 from fastapi import FastAPI
 
-from thoth.api import apps, health
+from thoth.api import apps, health, process
 from thoth.api.deps import get_config, get_engine, get_registry_holder
 from thoth.db.migrate import upgrade_db
 
@@ -11,6 +11,7 @@ BACKEND_HOST = "127.0.0.1"
 app = FastAPI(title="thoth")
 app.include_router(health.router)
 app.include_router(apps.router)
+app.include_router(process.router)
 
 
 def run() -> None:

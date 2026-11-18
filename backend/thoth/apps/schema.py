@@ -71,6 +71,7 @@ class ProcessService(_ServiceBase):
     start: Argv
     stop: Argv | None = None
     stop_timeout: int = Field(10, gt=0)
+    start_timeout: int = Field(30, gt=0)
     port: Port | None = None
     pid_file: str | None = None
     healthcheck: Healthcheck | None = None
