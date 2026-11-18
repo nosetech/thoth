@@ -104,7 +104,7 @@ modes:
 - 現在のモードは状態として DB に保存する（登録定義ではない）。
 
 ### モードの選択と IP の渡し方（#6）
-- **IP の渡し方**: thoth を起動するシェルで `LAN_IP` / `TAILSCALE_IP` を環境変数として渡す。取得方法は例えば `LAN_IP=$(ipconfig getifaddr en0)` / `TAILSCALE_IP=$(tailscale ip -4)`。thoth 自身は IP を探索しない（外部コマンドを実行しない）。値は IP アドレス形式でなければ起動を拒否する。
+- **IP の渡し方**: thoth を起動するシェルで `LAN_IP` / `TAILSCALE_IP` を環境変数として渡す。取得方法は例えば `LAN_IP=$(ipconfig getifaddr en0)` / `TAILSCALE_IP=$(tailscale ip -4)`。thoth 自身は IP を探索しない（外部コマンドを実行しない）。値は IP アドレス形式でなければ起動を拒否する（`0.0.0.0` / `::` / ループバック / マルチキャストも拒否）。
 - **モードの切替**: `GET /api/apps/{id}/mode`（現在のモードと、各モードの `available` / `reason`）、`PUT /api/apps/{id}/mode`（ボディ `{"mode": "local|lan|vpn"}`、CSRF 対策必須）。未定義のモード・IP 未設定／不正・`LAN_IP` と `TAILSCALE_IP` の同時指定は 422。起動中のサービスがあれば 409（停止してから切り替える）。変更は次回起動から反映され、DB の `app_state` に保存する。既定は `local`。
 - 待ち受けアドレスは、モードが `${LAN_IP}` 等として渡す env・argv をアプリ側が使って決める（thoth は値を渡すのみ）。
 
