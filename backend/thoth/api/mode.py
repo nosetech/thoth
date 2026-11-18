@@ -61,7 +61,7 @@ def _unavailable_reason(app: App, mode: str) -> str | None:
 
 def _current(session: Session, app: App) -> str:
     row = session.get(AppState, app.id)
-    return row.mode if row is not None and row.mode in app.modes else "local"
+    return row.mode if row is not None else "local"  # 起動時の判定（manager）と揃える
 
 
 def _out(session: Session, app: App) -> ModeOut:

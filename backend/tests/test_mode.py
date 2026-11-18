@@ -78,3 +78,12 @@ def test_invalid_ip_value_rejected(tmp_path):
         build_env(a, svc, "lan", {"LAN_IP": "not-an-ip"})
     env, _ = build_env(a, svc, "vpn", {"TAILSCALE_IP": "100.64.0.1"})
     assert env["TAILSCALE_IP"] == "100.64.0.1"
+
+
+@pytest.mark.parametrize("ip", ["0.0.0.0", "::", "127.0.0.1", "224.0.0.1"])
+def test_unsafe_ip_rejected(tmp_path, ip):
+    a = make_apps(tmp_path, "- {id: web, kind: process, start: [x]}\n", extra=MODES)
+    with pytest.raises(ProcessConfigError, match="使えない"):
+        build_env(a, a.services[0], "lan", {"LAN_IP": ip})
+    env, _ = build_env(a, a.services[0], "lan", {"LAN_IP": "fd00::1"})
+    assert env["LAN_IP"] == "fd00::1"

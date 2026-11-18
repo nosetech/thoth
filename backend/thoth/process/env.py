@@ -48,9 +48,12 @@ def build_env(
     for name in ALLOWED_THOTH_VARS:
         if name in merged:
             try:
-                ipaddress.ip_address(merged[name])
+                ip = ipaddress.ip_address(merged[name])
             except ValueError:
                 raise ProcessConfigError(f"{name} が IP アドレスではありません") from None
+            if ip.is_unspecified or ip.is_multicast or ip.is_loopback:
+                # 0.0.0.0 等は全インターフェースへ公開してしまうため不可
+                raise ProcessConfigError(f"{name} に使えない IP アドレスです")
     child = {k: v for k, v in src.items() if k not in ALLOWED_THOTH_VARS}
     child.update(merged)
     return child, merged
