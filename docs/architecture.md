@@ -228,6 +228,7 @@ apps:
 # フロントエンドのテーマとレイアウト（#3）
 
 - UI は [cosmic-ui](https://github.com/rizznme/cosmic-ui)（サイバーパンク調）。npm パッケージではなく shadcn 方式で、コンポーネントのソースを `frontend/components/ui/` に取り込んでいる（`button` / `frame` / `sheet` / `portal` / `presence`。Next.js 用に `"use client"` を付与）。取り込み元は `rizznme/cosmic-ui` の commit `fd06957`（2026-11-17 時点の HEAD）。追加が必要なら同リポジトリの `src/components/ui/` から同様に取り込み、ここの commit を更新する。npm の `cosmic-ui` は無関係の別パッケージなので使わない。
+- **画面実装の方針**: Claude の Artifacts のデザインは UI の操作イメージ（画面構成・状態遷移・文言・操作フロー）を固めるためのもので、見た目の値は再現しない。画面は cosmic-ui のコンポーネントで実装し、独自のコンポーネント・CSS は極力作らない。cosmic-ui で実装できないものは、独自実装せず判断を仰ぐ（CLAUDE.md「画面デザインの実装ルール」）。
 - スタイルは Tailwind CSS v4（`@tailwindcss/postcss`）。配色トークンは `app/globals.css` の `@theme`（`--color-primary` / `--color-accent` / `--color-background` など）。
 - **ライト/ダーク切替は設けない（ダーク固定）**。サイバーパンク調はダーク前提のデザインで、1 名利用のため切替の必要性が低い。必要になれば `data-theme` + CSS 変数方式で別 issue とする。
 - `AppShell`（`components/AppShell.tsx`）が全画面共通。ドロワーは制御コンポーネントで、リンク遷移時と md 以上へのリサイズ時に閉じる。キーボード操作のため `focus-visible` のフォーカス表示と「本文へスキップ」リンクを持つ。`md`（768px）以上は固定サイドバー、未満はヘッダー + ドロワー（`Sheet`）。ナビ項目は `lib/nav.ts`。
@@ -235,7 +236,10 @@ apps:
 
 # アプリ一覧・操作 UI（#8）
 
-`/apps`（`frontend/app/apps/`、`frontend/components/AppsManager.tsx`、`frontend/components/apps/`）。デザイン Artifact（CLAUDE.md「画面デザインの実装ルール」）の CSS を `.ta` 配下にスコープして `apps.css` に移植し、共通シェルのスタイルと衝突させない。
+`/apps`（`frontend/app/apps/`、`frontend/components/AppsManager.tsx`、`frontend/components/apps/`）。
+
+> **現状と方針のずれ**: 現在の実装は旧方針（Artifact を正として忠実に再現）で作られており、デザイン Artifact の CSS を `.ta` 配下にスコープして `apps.css` / `shell.css` に移植している。新方針（cosmic-ui のコンポーネントで実装、独自 CSS は極力作らない）に合わせて、cosmic-ui ベースへ置き換える予定。置き換えるまでの間、以下は現状の記述である。
+
 - データは `/api/apps`・`/api/apps/{id}/status`・`/api/apps/{id}/mode` を 5 秒ごとにポーリング（タブ非表示中は停止、一時停止可）。操作はアプリ/サービス単位・一括（`on_failure` 選択）。停止・再起動・一括操作は確認ダイアログ（キャンセルが既定フォーカス）。
-- 共通シェル（`AppShell`、`app/shell.css`）もデザインに合わせた: ロゴ・ナビ（アイコン付き英字ラベル）・エラー件数バッジ・更新コントロール（最終更新・更新・一時停止・進行バー）・バックエンド接続表示・サイドバー折りたたみ（`localStorage` の `thoth.sidebar`）・モバイルヘッダー（接続ドット・最終更新・更新）・ドロワー。ページは `ShellStatusProvider`（`components/shell/ShellStatus.tsx`）経由で更新状態と操作をシェルへ公開する。シェル配下は `.ta` スコープ（デザイン配色）で、背景もデザインのグラデーションに揃えた。cosmic-ui の `components/ui/*`（sheet など）は現状どこからも使っていない。
-- デザインとの差分: アプリ URL（API に無い）と一括操作のアプリごとの進捗バー（同期 API のため）は未実装。ダッシュボード/ログ/リソース画面の中身はデザイン対象外（別 issue）。
+- 共通シェル（`AppShell`、`app/shell.css`）もデザインに合わせた: ロゴ・ナビ（アイコン付き英字ラベル）・エラー件数バッジ・更新コントロール（最終更新・更新・一時停止・進行バー）・バックエンド接続表示・サイドバー折りたたみ（`localStorage` の `thoth.sidebar`）・モバイルヘッダー（接続ドット・最終更新・更新）・ドロワー（旧方針ではデザインに合わせた）。ページは `ShellStatusProvider`（`components/shell/ShellStatus.tsx`）経由で更新状態と操作をシェルへ公開する。シェル配下は `.ta` スコープ（デザイン配色）で、背景もデザインのグラデーションに揃えている（置き換え対象）。cosmic-ui の `components/ui/*`（sheet など）は現状どこからも使っていない。
+- デザインとの差分（操作イメージ上の未実装）: アプリ URL（API に無い）と一括操作のアプリごとの進捗バー（同期 API のため）は未実装。ダッシュボード/ログ/リソース画面の中身はデザイン対象外（別 issue）。
