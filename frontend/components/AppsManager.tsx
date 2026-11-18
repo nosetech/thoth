@@ -230,6 +230,7 @@ export function AppsManager() {
   const [msgs, setMsgs] = useState<Record<string, Msg | null>>({});
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [confirm, setConfirm] = useState<ConfirmCfg | null>(null);
+  const [modeBusy, setModeBusy] = useState<Record<string, boolean>>({});
   const [bulkBusy, setBulkBusy] = useState<Action | null>(null);
   const [bulkResult, setBulkResult] = useState<BulkView | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -242,6 +243,8 @@ export function AppsManager() {
   const [reloading, setReloading] = useState(false);
   const mounted = useRef(true);
   const refreshing$ = useRef(false);
+  const pendingRefresh = useRef(false);
+  const refreshRef = useRef<(manual: boolean) => Promise<void>>(async () => {});
   const appsRef = useRef<AppView[] | null>(null);
   useEffect(() => {
     appsRef.current = apps;
@@ -261,8 +264,10 @@ export function AppsManager() {
     return Promise.all(
       defs.map(async (def): Promise<AppView> => {
         const [statuses, mode] = await Promise.all([
-          apiFetch<ServiceStatus[]>(`/api/apps/${def.id}/status`),
-          apiFetch<ModeInfo>(`/api/apps/${def.id}/mode`).catch(() => null),
+          apiFetch<ServiceStatus[]>(`/api/apps/${encodeURIComponent(def.id)}/status`).catch(
+            () => appsRef.current?.find((v) => v.def.id === def.id)?.statuses ?? [],
+          ),
+          apiFetch<ModeInfo>(`/api/apps/${encodeURIComponent(def.id)}/mode`).catch(() => null),
         ]);
         return { def, statuses, mode };
       }),
@@ -271,7 +276,11 @@ export function AppsManager() {
 
   const doRefresh = useCallback(
     async (manual: boolean) => {
-      if (refreshing$.current) return;
+      if (refreshing$.current) {
+        // 取得中に要求された再取得は完了後にもう一度行う（操作直後の状態を取りこぼさない）
+        pendingRefresh.current = true;
+        return;
+      }
       refreshing$.current = true;
       setRefreshing(true);
       try {
@@ -292,6 +301,10 @@ export function AppsManager() {
         }
       } finally {
         refreshing$.current = false;
+        if (pendingRefresh.current && mounted.current) {
+          pendingRefresh.current = false;
+          void refreshRef.current(false);
+        }
         if (mounted.current) {
           setRefreshing(false);
           setCycle((c) => c + 1);
@@ -300,6 +313,10 @@ export function AppsManager() {
     },
     [load, toast],
   );
+
+  useEffect(() => {
+    refreshRef.current = doRefresh;
+  }, [doRefresh]);
 
   const screen = loadError
     ? "error"
@@ -340,14 +357,20 @@ export function AppsManager() {
     const label = svc ? `${v.def.name} / ${nameOf(v, svc)}` : v.def.name;
     try {
       if (svc) {
-        await apiFetch(`/api/apps/${id}/services/${svc.id}/${op}`, { method: "POST" });
+        await apiFetch(
+          `/api/apps/${encodeURIComponent(id)}/services/${encodeURIComponent(svc.id)}/${op}`,
+          { method: "POST" },
+        );
         const text = `${nameOf(v, svc)} を${OP[op]}しました`;
         setMsg(id, { type: "ok", text, at: new Date() });
         toast("ok", label, text);
       } else {
-        const r = await apiFetch<{ results: ServiceResult[] }>(`/api/apps/${id}/${op}`, {
-          method: "POST",
-        });
+        const r = await apiFetch<{ results: ServiceResult[] }>(
+          `/api/apps/${encodeURIComponent(id)}/${op}`,
+          {
+            method: "POST",
+          },
+        );
         const c = countResults(r.results);
         const text =
           c.error > 0
@@ -442,9 +465,9 @@ export function AppsManager() {
 
   const onMode = async (v: AppView, mode: string) => {
     const id = v.def.id;
-    setAppBusy((b) => ({ ...b, [id]: "restart" }));
+    setModeBusy((b) => ({ ...b, [id]: true }));
     try {
-      await apiFetch(`/api/apps/${id}/mode`, { method: "PUT", body: { mode } });
+      await apiFetch(`/api/apps/${encodeURIComponent(id)}/mode`, { method: "PUT", body: { mode } });
       setMsg(id, {
         type: "info",
         text: `起動モードを ${mode} に切り替えました。次回の起動から適用されます`,
@@ -460,7 +483,7 @@ export function AppsManager() {
       });
       toast("error", `${v.def.name} の起動モード切替に失敗`, text);
     } finally {
-      setAppBusy((b) => omit(b, id));
+      setModeBusy((b) => omit(b, id));
       await doRefresh(false);
     }
   };
@@ -867,7 +890,7 @@ export function AppsManager() {
               st={statusOf(v)}
               busyOp={appBusy[v.def.id]}
               svcBusy={svcBusy}
-              locked={!!bulkBusy}
+              locked={!!bulkBusy || !!modeBusy[v.def.id]}
               msg={msgs[v.def.id] ?? null}
               onAppOp={onAppOp}
               onSvcOp={onSvcOp}
