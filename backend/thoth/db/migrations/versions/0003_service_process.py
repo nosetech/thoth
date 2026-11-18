@@ -21,7 +21,6 @@ def upgrade() -> None:
         sa.Column("service_id", sa.String(), nullable=False),
         sa.Column("pid", sa.Integer(), nullable=False),
         sa.Column("proc_started", sa.String(), nullable=False),
-        sa.Column("command", sa.Text(), nullable=False),
         sa.Column("recorded_at", sa.DateTime(), nullable=False),
         sa.PrimaryKeyConstraint("app_id", "service_id", name=op.f("pk_service_process")),
     )

@@ -70,7 +70,6 @@ class ServiceProcess(Base):
     service_id: Mapped[str] = mapped_column(String, primary_key=True)
     pid: Mapped[int] = mapped_column(Integer, nullable=False)
     proc_started: Mapped[str] = mapped_column(String, nullable=False)
-    command: Mapped[str] = mapped_column(Text, nullable=False, default="")
     recorded_at: Mapped[datetime] = mapped_column(
         UtcDateTime, nullable=False, default=lambda: datetime.now(UTC)
     )

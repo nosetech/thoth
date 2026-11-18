@@ -492,3 +492,271 @@ def test_api_app_level_order_and_double_start(api):
     # 停止は起動の逆順（依存されている db を最後に止める）
     assert [x["service_id"] for x in r.json()["results"]] == ["job", "web", "db"]
     assert api.post("/api/apps/demo/stop", headers=CSRF).status_code == 409
+
+
+# ---- レビュー対応（#41） ----------------------------------------------------------------
+
+
+def _spawn_sleep(**kw):
+    import subprocess
+
+    return subprocess.Popen(["sleep", "60"], **kw)
+
+
+def test_first_seen_pid_boundary_and_match(tmp_path, mgr, engine):
+    """初めて見る PID は、PID ファイル更新後に始まったものを別物とし、pid_match も照合する。"""
+    p = _spawn_sleep(start_new_session=True)
+    try:
+        time.sleep(0.2)
+        info = process_info(p.pid)
+        pid_file = tmp_path / "work" / "run.pid"
+        app = make_apps(tmp_path, LAUNCHER)
+        svc = svc_of(app, "web")
+        pid_file.write_text(str(p.pid))
+
+        def set_mtime(delta):
+            t = info.started_at + delta
+            os.utime(pid_file, (t, t))
+
+        set_mtime(-3)  # プロセスは PID ファイルの 3 秒後に始まった → 別物
+        assert mgr.status(app, svc).running is False
+        set_mtime(-1)  # 猶予（2 秒）以内 → 対象
+        assert mgr.status(app, svc).running is True
+        with Session(engine) as s:  # 以後は起動時刻で照合するため記録される
+            assert s.get(ServiceProcess, ("demo", "web")).pid == p.pid
+    finally:
+        p.kill()
+        p.wait()
+
+
+def test_pid_match(tmp_path, mgr):
+    p = _spawn_sleep(start_new_session=True)
+    try:
+        time.sleep(0.2)
+        pid_file = tmp_path / "work" / "run.pid"
+        for match, expected in (("no-such-string", False), ("sleep", True)):
+            app = make_apps(tmp_path, LAUNCHER + f"  pid_match: {match}\n")
+            svc = svc_of(app, "web")
+            pid_file.write_text(str(p.pid))
+            assert mgr.status(app, svc).running is expected
+    finally:
+        p.kill()
+        p.wait()
+
+
+def test_pid_match_requires_pid_file(tmp_path):
+    with pytest.raises(Exception, match="pid_match"):
+        make_apps(tmp_path, "- {id: web, kind: process, start: [x], pid_match: x}\n")
+
+
+def test_signal_skips_replaced_process(tmp_path, mgr):
+    """送信直前の再確認で起動時刻が違えば、シグナルを送らない。"""
+    from thoth.process.manager import ServiceStatus
+
+    p = _spawn_sleep(start_new_session=True)
+    try:
+        time.sleep(0.2)
+        stale = ServiceStatus(True, p.pid, "thoth", started="Mon Jan  1 00:00:00 2001")
+        ProcessManager._signal(stale, signal.SIGKILL, True)
+        assert p.poll() is None
+    finally:
+        p.kill()
+        p.wait()
+
+
+def test_signal_non_leader_uses_plain_kill():
+    """グループリーダーでない PID には killpg せず、その PID だけに送る。"""
+    from thoth.process.manager import ServiceStatus
+
+    p = _spawn_sleep()  # thoth（テスト）と同じプロセスグループ
+    try:
+        time.sleep(0.2)
+        info = process_info(p.pid)
+        ProcessManager._signal(
+            ServiceStatus(True, p.pid, "pid_file", started=info.started), signal.SIGTERM, True
+        )
+        p.wait(timeout=3)
+        assert p.returncode == -signal.SIGTERM
+    finally:
+        if p.poll() is None:
+            p.kill()
+            p.wait()
+
+
+def test_signal_permission_error(monkeypatch):
+    from thoth.process import manager as m
+
+    def deny(*a):
+        raise PermissionError
+
+    monkeypatch.setattr(m.os, "kill", deny)
+    monkeypatch.setattr(m.os, "getpgid", lambda pid: 0)
+    st = m.ServiceStatus(True, os.getpid(), "thoth", started=process_info(os.getpid()).started)
+    with pytest.raises(ProcessError) as e:
+        m.ProcessManager._signal(st, signal.SIGTERM, False)
+    assert e.value.kind == "failed"
+
+
+def test_stop_command_nonzero_but_stopped(tmp_path, mgr):
+    app = make_apps(
+        tmp_path,
+        LAUNCHER + "  stop: [sh, -c, 'kill $(cat run.pid); rm -f run.pid; exit 4']\n",
+    )
+    svc = svc_of(app, "web")
+    mgr.start(app, svc)
+    note = mgr.stop(app, svc)
+    assert "終了コード 4" in note and mgr.status(app, svc).running is False
+
+
+def test_stop_command_leaves_process(tmp_path, mgr):
+    app = make_apps(
+        tmp_path,
+        "- {id: web, kind: process, start: [sleep, '60'], stop: ['true'], stop_timeout: 1}\n",
+    )
+    svc = svc_of(app, "web")
+    mgr.start(app, svc)
+    with pytest.raises(ProcessError, match="残っています"):
+        mgr.stop(app, svc)
+
+
+def test_start_app_skips_after_failure(tmp_path, mgr):
+    app = make_apps(
+        tmp_path,
+        "- {id: a, kind: process, start: [sh, -c, 'exit 1']}\n"
+        "- {id: b, kind: process, start: [sleep, '60'], depends_on: [a]}\n",
+    )
+    res = mgr.start_app(app)
+    assert [(r.service_id, r.result) for r in res] == [("a", "error"), ("b", "skipped")]
+    assert "未実行" in res[1].message
+
+
+def test_restart_app_structure(tmp_path, mgr):
+    app = make_apps(
+        tmp_path,
+        "- {id: a, kind: process, start: [sleep, '60'], stop_timeout: 3}\n"
+        "- {id: b, kind: process, start: [sleep, '60'], stop_timeout: 3, depends_on: [a]}\n"
+        "- {id: job, kind: scheduled, launchd_label: com.example.job}\n",
+    )
+    first = mgr.restart_app(app)  # 全停止中 → 起動のみ。サービスごとに 1 件
+    assert [(r.service_id, r.action, r.result) for r in first] == [
+        ("a", "restart", "ok"),
+        ("b", "restart", "ok"),
+        ("job", "restart", "skipped"),
+    ]
+    pids = {s: mgr.status(app, svc_of(app, s)).pid for s in "ab"}
+    again = mgr.restart_app(app)
+    assert [r.result for r in again] == ["ok", "ok", "skipped"]
+    assert all(mgr.status(app, svc_of(app, s)).pid != pids[s] for s in "ab")
+
+
+def test_restart_app_stop_failure_aborts(tmp_path, mgr):
+    app = make_apps(
+        tmp_path,
+        "- {id: a, kind: process, start: [sleep, '60'], stop: ['true'], stop_timeout: 1}\n"
+        "- {id: b, kind: process, start: [sleep, '60'], stop_timeout: 3, depends_on: [a]}\n",
+    )
+    mgr.start_app(app)
+    res = {r.service_id: r for r in mgr.restart_app(app)}
+    assert res["a"].result == "error" and res["a"].message.startswith("停止に失敗")
+    assert res["b"].result == "skipped" and res["b"].action == "restart"
+
+
+def test_unexpected_error_is_generic(tmp_path, mgr, engine, monkeypatch):
+    app = make_apps(tmp_path, f"- {SLEEP}\n")
+
+    def boom(*a, **k):
+        raise RuntimeError("/Users/secret/path token=abc")
+
+    monkeypatch.setattr(mgr, "_do_start", boom)
+    with pytest.raises(ProcessError) as e:
+        mgr.start(app, svc_of(app, "web"))
+    assert "secret" not in str(e.value) and "token" not in str(e.value)
+    with Session(engine) as s:
+        msg = s.scalars(select(ServiceOperation)).one().message
+    assert "secret" not in msg
+
+
+def test_error_messages_hide_absolute_paths(tmp_path, mgr):
+    app = make_apps(tmp_path, "- {id: web, kind: process, start: [sh, -c, 'exit 3']}\n")
+    with pytest.raises(ProcessError) as e:
+        mgr.start(app, svc_of(app, "web"))
+    assert str(tmp_path) not in str(e.value)
+    wd = tmp_path / "work"
+    app = make_apps(tmp_path, f"- {SLEEP}\n")
+    wd.rmdir()
+    with pytest.raises(ProcessError) as e:
+        mgr.start(app, svc_of(app, "web"))
+    assert e.value.kind == "config" and str(tmp_path) not in str(e.value)
+
+
+def test_log_permissions_and_rotation(tmp_path, engine, monkeypatch):
+    from thoth.process import manager as m
+
+    monkeypatch.setattr(m, "_LOG_MAX_BYTES", 100)
+    mgr = ProcessManager(engine, tmp_path / "logs", settle=0.3)
+    log = tmp_path / "logs" / "apps" / "demo.web.log"
+    log.parent.mkdir(parents=True)
+    log.write_text("x" * 500)
+    log.chmod(0o644)
+    app = make_apps(tmp_path, f"- {SLEEP}\n")
+    svc = svc_of(app, "web")
+    mgr.start(app, svc)
+    try:
+        assert (log.stat().st_mode & 0o777) == 0o600
+        assert (log.parent / "demo.web.log.1").read_text() == "x" * 500
+        assert log.stat().st_size < 100  # 新しいログから書き直される
+    finally:
+        mgr.stop(app, svc)
+
+
+def test_status_reports_busy(tmp_path, mgr):
+    app = make_apps(
+        tmp_path,
+        "- id: web\n  kind: process\n  pid_file: run.pid\n"
+        "  start: [sh, -c, 'sleep 1; nohup sleep 60 >/dev/null 2>&1 & echo $! > run.pid']\n",
+    )
+    svc = svc_of(app, "web")
+    t = threading.Thread(target=lambda: mgr.start(app, svc))
+    t.start()
+    time.sleep(0.3)
+    assert mgr.status(app, svc).busy == "start"
+    with pytest.raises(ProcessError, match="start"):
+        mgr.stop(app, svc)
+    t.join()
+    assert mgr.status(app, svc).busy is None
+
+
+def test_process_info_unparsable_lstart(monkeypatch):
+    import subprocess
+
+    from thoth.process import ps
+
+    class R:
+        returncode = 0
+        stdout = "S 501 garbage a b c d cmd -x\n"
+
+    monkeypatch.setattr(ps.subprocess, "run", lambda *a, **k: R())
+    assert subprocess  # noqa: B018
+    info = ps.process_info(123)
+    assert info.started_at is None and info.uid == 501 and info.command == "cmd -x"
+
+
+def test_api_partial_failure_is_500_with_results(tmp_path, mgr):
+    app = make_apps(
+        tmp_path,
+        "- {id: a, kind: process, start: [sh, -c, 'exit 1']}\n"
+        "- {id: b, kind: process, start: [sleep, '60'], depends_on: [a]}\n",
+    )
+    holder = RegistryHolder(tmp_path / "apps.yaml")
+    assert holder.registry.get(app.id)
+    fastapi_app.dependency_overrides[get_registry_holder] = lambda: holder
+    fastapi_app.dependency_overrides[get_process_manager] = lambda: mgr
+    try:
+        r = TestClient(fastapi_app).post("/api/apps/demo/start", headers=CSRF)
+    finally:
+        fastapi_app.dependency_overrides.clear()
+    assert r.status_code == 500
+    assert [(x["service_id"], x["result"]) for x in r.json()["detail"]["results"]] == [
+        ("a", "error"),
+        ("b", "skipped"),
+    ]

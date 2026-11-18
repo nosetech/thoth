@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import signal
 import socket
@@ -28,9 +29,14 @@ from thoth.db.models import AppState, ServiceOperation, ServiceProcess
 from thoth.process.env import ALLOWED_THOTH_VARS, ProcessConfigError, build_env, resolve_argv
 from thoth.process.ps import ProcInfo, process_info
 
+logger = logging.getLogger(__name__)
+
 _MESSAGE_LIMIT = 1000
+_LOG_MAX_BYTES = 5 * 1024 * 1024  # 超えたら起動・停止のたびに 1 世代だけ退避する
 _PID_FILE_START_WAIT = 10.0  # 起動コマンド正常終了後に PID ファイルの反映を待つ秒数
-_PID_REUSE_TOLERANCE = 2.0  # PID ファイルの更新時刻より後に始まったプロセスは別物とみなす猶予
+# PID ファイルの更新時刻より後に始まったプロセスは別物とみなす。起動スクリプトは対象を起動した
+# 直後に PID ファイルを書くため、その遅れ（ps の lstart は秒精度）を吸収する猶予
+_PID_REUSE_TOLERANCE = 2.0
 
 
 class ProcessError(Exception):
@@ -47,6 +53,7 @@ class ServiceStatus:
     pid: int | None = None
     source: str | None = None  # "pid_file" / "thoth"
     busy: str | None = None  # 実行中の操作（start / stop / restart）
+    started: str | None = None  # プロセスの起動時刻（kill 直前の再照合用。API には出さない）
 
 
 @dataclass(frozen=True)
@@ -61,7 +68,6 @@ class ServiceResult:
 class _Record:
     pid: int
     proc_started: str
-    command: str
 
 
 def ordered_services(app: App) -> list[Service]:
@@ -119,7 +125,9 @@ class ProcessManager:
     def status(self, app: App, svc: Service) -> ServiceStatus:
         proc = self._require_process(svc)
         st = self._inspect(app, proc)
-        return ServiceStatus(st.running, st.pid, st.source, self._busy.get((app.id, svc.id)))
+        with self._guard:
+            busy = self._busy.get((app.id, svc.id))
+        return ServiceStatus(st.running, st.pid, st.source, busy)
 
     def start(self, app: App, svc: Service) -> str | None:
         proc = self._require_process(svc)
@@ -147,16 +155,23 @@ class ProcessManager:
 
     def start_app(self, app: App) -> list[ServiceResult]:
         results: list[ServiceResult] = []
+        failed = False
         for svc in ordered_services(app):
             if not isinstance(svc, ProcessService):
                 results.append(self._unsupported(svc, "start"))
             elif self.status(app, svc).running:
                 results.append(ServiceResult(svc.id, "start", "skipped", "既に起動中です"))
             else:
+                if failed:
+                    results.append(
+                        ServiceResult(
+                            svc.id, "start", "skipped", "先に失敗したサービスがあるため未実行"
+                        )
+                    )
+                    continue
                 r = self._try(svc, "start", lambda svc=svc: self.start(app, svc))
                 results.append(r)
-                if r.result == "error":
-                    break  # 依存される側が起動できないので以降は起動しない
+                failed = r.result == "error"  # 依存される側が起動できないので以降は起動しない
         return results
 
     def stop_app(self, app: App) -> list[ServiceResult]:
@@ -171,14 +186,30 @@ class ProcessManager:
         return results
 
     def restart_app(self, app: App) -> list[ServiceResult]:
-        stopped = self.stop_app(app)
-        if any(r.result == "error" for r in stopped):
-            return stopped
-        results = [ServiceResult(r.service_id, "restart", r.result, r.message) for r in stopped]
-        started = self.start_app(app)
-        return results + [
-            ServiceResult(r.service_id, "restart", r.result, r.message) for r in started
-        ]
+        """停止（逆順）→ 起動（依存順）。結果はサービスごとに 1 件（依存順）にまとめる。"""
+        stopped = {r.service_id: r for r in self.stop_app(app)}
+        order = [s.id for s in ordered_services(app)]
+        if any(r.result == "error" for r in stopped.values()):
+            out = []
+            for sid in order:
+                r = stopped[sid]
+                if r.result == "error":
+                    out.append(ServiceResult(sid, "restart", "error", f"停止に失敗: {r.message}"))
+                else:
+                    msg = "停止に失敗したサービスがあるため再起動を中断（起動は未実行）"
+                    out.append(ServiceResult(sid, "restart", "skipped", msg))
+            return out
+        started = {r.service_id: r for r in self.start_app(app)}
+        out = []
+        for sid in order:
+            a, b = stopped[sid], started[sid]
+            if b.result == "error":
+                out.append(ServiceResult(sid, "restart", "error", f"起動に失敗: {b.message}"))
+            elif a.result == "ok" or b.result == "ok":
+                out.append(ServiceResult(sid, "restart", "ok", b.message or a.message))
+            else:
+                out.append(ServiceResult(sid, "restart", "skipped", b.message or a.message))
+        return out
 
     # ---- 操作の共通処理（排他・履歴） -------------------------------------------------
 
@@ -210,10 +241,12 @@ class ProcessManager:
         # 二重起動を防ぐため、同一サービスの操作は直列化する（待たずに拒否する）
         lock = self._lock(key)
         if not lock.acquire(blocking=False):
-            busy = self._busy.get(key, "操作")
+            with self._guard:
+                busy = self._busy.get(key, "操作")
             raise ProcessError("conflict", f"別の操作（{busy}）を実行中です")
         started = datetime.now(UTC)
-        self._busy[key] = action
+        with self._guard:
+            self._busy[key] = action
         try:
             try:
                 msg = fn()
@@ -222,13 +255,16 @@ class ProcessManager:
                 self._record_op(key, action, status, str(e), started)
                 raise
             except Exception as e:  # 想定外の失敗も履歴に残し、API には失敗として返す
-                text = f"想定外のエラー: {type(e).__name__}: {e}"
+                # 例外の詳細（パス等）は API 応答・履歴に出さず、サーバーログにのみ残す
+                logger.exception("想定外のエラー: %s/%s %s", key[0], key[1], action)
+                text = "想定外のエラーが発生しました（詳細はサーバーログを参照）"
                 self._record_op(key, action, "failed", text, started)
                 raise ProcessError("failed", text) from e
             self._record_op(key, action, "succeeded", msg, started)
             return msg
         finally:
-            self._busy.pop(key, None)
+            with self._guard:
+                self._busy.pop(key, None)
             lock.release()
 
     # ---- 状態の判定 ------------------------------------------------------------------
@@ -246,21 +282,28 @@ class ProcessManager:
             if info is None:
                 return ServiceStatus(False)
             rec = self._get_record(key)
+            rec = self._get_record(key)
             if rec is not None and rec.pid == info.pid:
                 if rec.proc_started != info.started:  # PID が再利用された別プロセス
                     return ServiceStatus(False)
-                if rec.command != info.command:  # exec 等でコマンドラインが変わっただけ
-                    self._save_record(key, info)
             else:
-                # 初めて見る PID。PID ファイルより後に始まったプロセスは別物（古い PID ファイル）
+                # 初めて見る PID（thoth 再起動後など）。古い PID ファイルが無関係なプロセスを
+                # 指している可能性があるため、次を満たさなければ別物として扱い、記録もしない
+                # - PID ファイルより後に始まったプロセスではない
+                # - thoth と同じユーザーのプロセスである
+                # - pid_match が指定されていれば、コマンドラインに含まれる
                 try:
                     mtime = pid_path.stat().st_mtime
                 except OSError:
                     return ServiceStatus(False)
                 if info.started_at is not None and info.started_at > mtime + _PID_REUSE_TOLERANCE:
                     return ServiceStatus(False)
+                if info.uid is not None and info.uid != os.getuid():
+                    return ServiceStatus(False)
+                if svc.pid_match is not None and svc.pid_match not in info.command:
+                    return ServiceStatus(False)
                 self._save_record(key, info)
-            return ServiceStatus(True, info.pid, "pid_file")
+            return ServiceStatus(True, info.pid, "pid_file", started=info.started)
 
         rec = self._get_record(key)
         if rec is None:
@@ -268,7 +311,7 @@ class ProcessManager:
         info = process_info(rec.pid)
         if info is None or info.started != rec.proc_started:
             return ServiceStatus(False)
-        return ServiceStatus(True, rec.pid, "thoth")
+        return ServiceStatus(True, rec.pid, "thoth", started=rec.proc_started)
 
     @staticmethod
     def _service_dir(app: App, svc: ProcessService) -> Path:
@@ -300,7 +343,7 @@ class ProcessManager:
         argv = self._resolve(svc.start, defined, "start")
         cwd = self._service_dir(app, svc)
         if not cwd.is_dir():
-            raise ProcessError("config", f"作業ディレクトリが存在しません: {cwd}")
+            raise ProcessError("config", f"作業ディレクトリが存在しません（サービス {svc.id}）")
 
         if svc.port is not None:
             hosts = ["127.0.0.1", *(defined[k] for k in ALLOWED_THOTH_VARS if k in defined)]
@@ -319,14 +362,15 @@ class ProcessManager:
             try:
                 rc = proc.wait(timeout=svc.start_timeout)
             except subprocess.TimeoutExpired:
-                self._terminate_group(proc.pid)
+                self._terminate_group(proc)
                 raise ProcessError(
                     "failed",
                     f"起動コマンドが start_timeout（{svc.start_timeout} 秒）内に終了しません",
                 ) from None
             if rc != 0:
                 raise ProcessError(
-                    "failed", f"起動コマンドが終了コード {rc} で終了しました（ログ: {log_path}）"
+                    "failed",
+                    f"起動コマンドが終了コード {rc} で終了しました（ログ: apps/{log_path.name}）",
                 )
             if not _wait_until(lambda: self._inspect(app, svc).running, _PID_FILE_START_WAIT):
                 raise ProcessError(
@@ -343,7 +387,8 @@ class ProcessManager:
             pass
         else:
             raise ProcessError(
-                "failed", f"プロセスが起動直後に終了しました（終了コード {rc}、ログ: {log_path}）"
+                "failed",
+                f"プロセスが起動直後に終了しました（終了コード {rc}、ログ: apps/{log_path.name}）",
             )
         info = process_info(proc.pid)
         if info is None:
@@ -375,9 +420,15 @@ class ProcessManager:
         env: dict[str, str],
     ) -> tuple[subprocess.Popen, Path]:
         log_dir = self._log_dir / "apps"
-        log_dir.mkdir(parents=True, exist_ok=True)
+        log_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
         log_path = log_dir / f"{app.id}.{svc.id}.log"
+        try:
+            if log_path.stat().st_size > _LOG_MAX_BYTES:
+                os.replace(log_path, log_path.with_name(log_path.name + ".1"))
+        except FileNotFoundError:
+            pass
         fd = os.open(log_path, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
+        os.fchmod(fd, 0o600)  # 既存ファイルの権限も矯正する
         with os.fdopen(fd, "ab") as log:
             log.write(f"--- {datetime.now(UTC).isoformat()} {action} ---\n".encode())
             log.flush()
@@ -415,18 +466,18 @@ class ProcessManager:
             argv = self._resolve(svc.stop, defined, "stop")
             cwd = self._service_dir(app, svc)
             if not cwd.is_dir():
-                raise ProcessError("config", f"作業ディレクトリが存在しません: {cwd}")
+                raise ProcessError("config", f"作業ディレクトリが存在しません（サービス {svc.id}）")
             proc, log_path = self._spawn(app, svc, "stop", argv, cwd, env)
             try:
                 rc = proc.wait(timeout=svc.stop_timeout)
             except subprocess.TimeoutExpired:
-                self._terminate_group(proc.pid)
+                self._terminate_group(proc)
                 raise ProcessError(
                     "failed",
                     f"停止コマンドが stop_timeout（{svc.stop_timeout} 秒）内に終了しません",
                 ) from None
             if rc != 0:
-                note = f"停止コマンドが終了コード {rc} で終了しました（ログ: {log_path}）"
+                note = f"停止コマンドが終了コード {rc} で終了しました（ログ: apps/{log_path.name}）"
             if not _wait_until(stopped, svc.stop_timeout):
                 raise ProcessError(
                     "failed", f"停止コマンドの実行後もプロセスが残っています（PID {st.pid}）"
@@ -436,9 +487,9 @@ class ProcessManager:
             # PID ファイル型は PID ファイルが指すプロセスのみ
             # （グループを共有する別プロセスを巻き込まない）
             group = svc.pid_file is None
-            self._signal(st.pid, signal.SIGTERM, group)
+            self._signal(st, signal.SIGTERM, group)
             if not _wait_until(stopped, svc.stop_timeout):
-                self._signal(st.pid, signal.SIGKILL, group)
+                self._signal(st, signal.SIGKILL, group)
                 if not _wait_until(stopped, 5.0):
                     raise ProcessError(
                         "failed", f"SIGKILL 後もプロセスが残っています（PID {st.pid}）"
@@ -450,8 +501,13 @@ class ProcessManager:
         return note
 
     @staticmethod
-    def _signal(pid: int | None, sig: signal.Signals, group: bool) -> None:
+    def _signal(st: ServiceStatus, sig: signal.Signals, group: bool) -> None:
+        pid = st.pid
         if pid is None:
+            return
+        # 送信直前に同じプロセスか再確認する（状態判定からの間に終了・PID 再利用された場合に備える）
+        cur = process_info(pid)
+        if cur is None or (st.started is not None and cur.started != st.started):
             return
         try:
             # グループへ送るのは、PID 自身がグループリーダー（thoth が新セッションで起動）の場合のみ
@@ -465,15 +521,22 @@ class ProcessManager:
             raise ProcessError("failed", f"プロセス（PID {pid}）へシグナルを送れません") from None
 
     @staticmethod
-    def _terminate_group(pid: int) -> None:
-        """thoth が起動したコマンドのグループを終了させる（タイムアウト時の後始末）。"""
+    def _terminate_group(proc: subprocess.Popen) -> None:
+        """thoth が起動したコマンドのグループを終了させ、回収する（タイムアウト時の後始末）。"""
         for sig in (signal.SIGTERM, signal.SIGKILL):
             try:
-                os.killpg(pid, sig)
+                os.killpg(proc.pid, sig)
             except (ProcessLookupError, PermissionError):
+                break
+            try:
+                proc.wait(timeout=3.0)  # 子の回収（ゾンビ防止）を兼ねる
                 return
-            if _wait_until(lambda: process_info(pid) is None, 3.0):
-                return
+            except subprocess.TimeoutExpired:
+                continue
+        try:
+            proc.wait(timeout=1.0)
+        except subprocess.TimeoutExpired:
+            pass
 
     # ---- DB ----------------------------------------------------------------------------
 
@@ -485,7 +548,7 @@ class ProcessManager:
     def _get_record(self, key: tuple[str, str]) -> _Record | None:
         with Session(self._engine) as s:
             row = s.get(ServiceProcess, key)
-            return None if row is None else _Record(row.pid, row.proc_started, row.command)
+            return None if row is None else _Record(row.pid, row.proc_started)
 
     def _save_record(self, key: tuple[str, str], info: ProcInfo) -> None:
         with Session(self._engine) as s:
@@ -495,7 +558,6 @@ class ProcessManager:
                     service_id=key[1],
                     pid=info.pid,
                     proc_started=info.started,
-                    command=info.command,
                     recorded_at=datetime.now(UTC),
                 )
             )
