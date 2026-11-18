@@ -232,3 +232,9 @@ apps:
 - **ライト/ダーク切替は設けない（ダーク固定）**。サイバーパンク調はダーク前提のデザインで、1 名利用のため切替の必要性が低い。必要になれば `data-theme` + CSS 変数方式で別 issue とする。
 - `AppShell`（`components/AppShell.tsx`）が全画面共通。ドロワーは制御コンポーネントで、リンク遷移時と md 以上へのリサイズ時に閉じる。キーボード操作のため `focus-visible` のフォーカス表示と「本文へスキップ」リンクを持つ。`md`（768px）以上は固定サイドバー、未満はヘッダー + ドロワー（`Sheet`）。ナビ項目は `lib/nav.ts`。
 - 状態コンポーネント（`components/states.tsx`）: `LoadingState` / `EmptyState` / `ErrorState`。`app/loading.tsx` / `error.tsx` / `not-found.tsx` から使う。通常状態は各画面の本体。
+
+# アプリ一覧・操作 UI（#8）
+
+`/apps`（`frontend/app/apps/`、`frontend/components/AppsManager.tsx`、`frontend/components/apps/`）。デザイン Artifact（CLAUDE.md「画面デザインの実装ルール」）の CSS を `.ta` 配下にスコープして `apps.css` に移植し、共通シェルのスタイルと衝突させない。
+- データは `/api/apps`・`/api/apps/{id}/status`・`/api/apps/{id}/mode` を 5 秒ごとにポーリング（タブ非表示中は停止、一時停止可）。操作はアプリ/サービス単位・一括（`on_failure` 選択）。停止・再起動・一括操作は確認ダイアログ（キャンセルが既定フォーカス）。
+- デザインとの差分: 更新コントロール（最終更新・更新・一時停止）はデザインではサイドバー内だが、共通シェル（#3）を変えずページ内に配置。アプリ URL・サイドバーの接続状態/エラー件数・折りたたみは未実装（API に無い／シェル側の範囲）。一括操作は同期 API のため、アプリごとの進捗バーは出さない。

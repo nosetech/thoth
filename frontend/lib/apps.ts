@@ -26,53 +26,57 @@ export type ServiceResult = {
   result: "ok" | "skipped" | "error";
   message: string | null;
 };
-export type BulkResult = {
-  status: "ok" | "partial" | "failed";
-  apps: {
-    app_id: string;
-    status: "ok" | "error" | "skipped";
-    message: string | null;
-    results: ServiceResult[];
-  }[];
+export type BulkAppResult = {
+  app_id: string;
+  status: "ok" | "error" | "skipped";
+  message: string | null;
+  results: ServiceResult[];
 };
+export type BulkResult = { status: "ok" | "partial" | "failed"; apps: BulkAppResult[] };
 
-export const ACTION_LABEL: Record<Action, string> = {
-  start: "起動",
-  stop: "停止",
-  restart: "再起動",
-};
+export const MODES = ["local", "lan", "vpn"] as const;
+export const OP: Record<Action, string> = { start: "起動", stop: "停止", restart: "再起動" };
 
-/** 誤操作防止の確認が必要な操作（停止・再起動・一括操作はすべて確認する）。 */
-export function needsConfirm(action: Action, scope: "service" | "app" | "bulk"): boolean {
-  if (scope === "bulk") return true;
-  return action !== "start";
+export type AppStatus = "running" | "stopped" | "partial" | "busy" | "error";
+
+/** サービスの状態からアプリ全体の状態を求める（未対応サービスは除く）。 */
+export function appStatus(states: ServiceState[], busy: boolean, error: boolean): AppStatus {
+  if (busy) return "busy";
+  if (error) return "error";
+  const sup = states.filter((s) => s !== "unsupported");
+  const r = sup.filter((s) => s === "running").length;
+  return r === 0 ? "stopped" : r === sup.length ? "running" : "partial";
 }
 
-export type AppSummary = "running" | "partial" | "stopped" | "unsupported";
-
-/** サービスの状態からアプリ全体の状態を求める。 */
-export function summarize(states: ServiceState[]): AppSummary {
-  const ops = states.filter((s) => s !== "unsupported");
-  if (ops.length === 0) return "unsupported";
-  const running = ops.filter((s) => s === "running").length;
-  if (running === 0) return "stopped";
-  return running === ops.length ? "running" : "partial";
+/** 一括操作の対象アプリか。起動は停止中のサービスを持つもの、停止/再起動は実行中のものが対象。 */
+export function isBulkTarget(states: ServiceState[], op: Action): boolean {
+  return states.some((s) => (op === "start" ? s === "stopped" : s === "running"));
 }
 
-export const SUMMARY_LABEL: Record<AppSummary, string> = {
-  running: "稼働中",
-  partial: "一部稼働",
-  stopped: "停止中",
-  unsupported: "操作対象外",
-};
+/** 依存順に並べる（依存先が先）。 */
+export function topo<T extends { id: string; depends_on: string[] }>(services: T[]): T[] {
+  const out: T[] = [];
+  const seen = new Set<string>();
+  const visit = (s: T) => {
+    if (seen.has(s.id)) return;
+    seen.add(s.id);
+    for (const d of s.depends_on) {
+      const t = services.find((x) => x.id === d);
+      if (t) visit(t);
+    }
+    out.push(s);
+  };
+  services.forEach(visit);
+  return out;
+}
 
-/** ApiError / 通信エラーからユーザー向けメッセージを作る（詳細な内部情報は含めない）。 */
+/** ApiError / 通信エラーからユーザー向けメッセージを作る（内部情報は含めない）。 */
 export function errorMessage(e: unknown): string {
   if (e instanceof ApiError) {
     const body = e.body as { detail?: unknown } | string | null;
     const detail = typeof body === "object" && body !== null ? body.detail : body;
     if (typeof detail === "string" && detail) return detail;
-    if (detail && typeof detail === "object") {
+    if (detail && typeof detail === "object" && !Array.isArray(detail)) {
       const results = (detail as { results?: ServiceResult[] }).results;
       const msgs = results
         ?.filter((r) => r.result === "error" && r.message)
@@ -82,15 +86,10 @@ export function errorMessage(e: unknown): string {
     if (Array.isArray(detail)) return "入力が不正です";
     return `操作に失敗しました (HTTP ${e.status})`;
   }
-  return "backend に接続できません";
+  return "バックエンドに接続できません";
 }
 
-/** アプリ単位・一括操作の結果をユーザー向けの要約にする。 */
-export function summarizeResults(results: ServiceResult[]): {
-  ok: number;
-  skipped: number;
-  error: number;
-} {
+export function countResults(results: { result: "ok" | "skipped" | "error" }[]) {
   const c = { ok: 0, skipped: 0, error: 0 };
   for (const r of results) c[r.result] += 1;
   return c;

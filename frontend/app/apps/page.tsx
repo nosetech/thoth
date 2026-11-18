@@ -1,11 +1,6 @@
 import { AppsManager } from "@/components/AppsManager";
-import { PageHeading } from "@/components/PageHeading";
+import "./apps.css";
 
 export default function Page() {
-  return (
-    <>
-      <PageHeading title="アプリ" description="アプリ・サービスの状態と操作" />
-      <AppsManager />
-    </>
-  );
+  return <AppsManager />;
 }
