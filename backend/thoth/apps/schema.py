@@ -71,9 +71,19 @@ class ProcessService(_ServiceBase):
     start: Argv
     stop: Argv | None = None
     stop_timeout: int = Field(10, gt=0)
+    start_timeout: int = Field(30, gt=0)
     port: Port | None = None
     pid_file: str | None = None
+    pid_match: str | None = Field(
+        None, min_length=1
+    )  # pid_file の PID のコマンドラインに含まれる文字列
     healthcheck: Healthcheck | None = None
+
+    @model_validator(mode="after")
+    def _check_pid_match(self) -> ProcessService:
+        if self.pid_match is not None and self.pid_file is None:
+            raise ValueError("pid_match は pid_file と一緒に指定してください")
+        return self
 
 
 class ScheduledService(_ServiceBase):

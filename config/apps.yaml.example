@@ -15,6 +15,16 @@ apps:
         workdir: backend
         port: 8000
         healthcheck: { type: http, url: "http://127.0.0.1:8000/api/health" }
+      # 起動スクリプト型: start が対象をバックグラウンド起動して終了する。PID は pid_file（workdir 基準）が正
+      - id: scripted
+        kind: process
+        start: [./bin/start.sh]
+        stop: [./bin/stop.sh]
+        pid_file: logs/app.pid
+        pid_match: app.main   # 古い PID ファイル対策。PID のコマンドラインに含まれる文字列（推奨）
+        port: 8001
+        start_timeout: 300   # start の終了を待つ上限（秒）。既定 30
+        stop_timeout: 60
       - id: daily-job
         kind: scheduled
         launchd_label: com.example.sample-app.daily

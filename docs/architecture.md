@@ -58,11 +58,13 @@ backend 8900 / frontend 3900。既存アプリ（deep-tracker 8700/3700、focara
 | `start` | list[str] | ○ | 起動コマンド（argv 配列。シェル経由にしない）。`${VAR}` は許可リスト（`LAN_IP` / `TAILSCALE_IP`）と定義済み `env` のみ展開 |
 | `stop` | list[str] | | 停止コマンド。省略時は**プロセスグループ**に SIGTERM → `stop_timeout` 後 SIGKILL（`npm run start` など子プロセスを残さないため、thoth は `start_new_session` で起動し、グループ ID を保持する） |
 | `stop_timeout` | int(秒) | | 既定 10 |
+| `start_timeout` | int(秒) | | 既定 30。`pid_file` 指定時に起動コマンドの終了を待つ上限（`npm ci` / ビルドを行う起動スクリプトなどは長めにする） |
 | `port` | int | | 待ち受けポート（死活判定・競合検知に使用） |
-| `pid_file` | path | | あれば PID の正とする。無ければ thoth が起動したプロセスの PID を `data/` 配下に保持 |
+| `pid_file` | path | | あれば PID の正とする。無ければ thoth が起動したプロセスの PID を DB に保持 |
+| `pid_match` | str | | `pid_file` 指定時のみ。PID ファイルの PID を thoth が初めて見るとき、コマンドラインにこの文字列を含まなければ別プロセスとみなす（古い PID ファイル対策） |
 | `healthcheck` | Healthcheck | | 省略時は `port` があれば `tcp`、無ければ PID 生存のみ |
 
-**PID の扱い**: thoth 再起動後に保持済み PID を使う際は、PID の再利用による誤 kill を防ぐため、プロセスの起動時刻とコマンドラインを記録値と照合し、不一致なら「停止済み」とみなして kill しない。`pid_file` 指定時も同様に照合する。
+**PID の扱い**: thoth 再起動後に保持済み PID を使う際は、PID の再利用による誤 kill を防ぐため、プロセスの起動時刻を記録値と照合し、不一致なら「停止済み」とみなして kill しない（コマンドラインは `exec` で変わり得るため、記録・照合に使わない。他プロセスの引数に含まれる秘密を DB に残さないためでもある）。`pid_file` 指定時も同様に照合する。詳細は「プロセス制御（#5）」。
 
 ### `kind: scheduled`（launchd）
 | キー | 型 | 必須 | 説明 |
@@ -160,10 +162,52 @@ apps:
 - **CSRF 対策**: 変更系 API（POST/PUT/PATCH/DELETE）は、`Origin`（無ければ `Referer`）が thoth の frontend オリジン（`127.0.0.1:<frontend.port>` / `localhost:<frontend.port>`）と一致しない場合は 403 とし、あわせてカスタムヘッダ `X-Thoth-Request: 1` を必須とする。悪意ある Web ページからのクロスサイト POST で start/stop/reload を実行させないため。frontend の Route Handler がヘッダを付与して中継する。認証（#25）導入前の最低限の防御であり、認証導入後も維持する。
 - 設定ファイル自体が実行権限を持つため、`config/` は所有者のみ書込可（`0600`/`0700` を推奨、起動時に group/other 書込可なら警告）。
 - ログ・API 応答では環境変数の値を既定でマスクする（キー名のみ表示）。ヘルスチェック URL のホストはループバックと thoth 自身の許可リスト変数に限定し、SSRF を防ぐ。
-- **認証（#25 との関係）**: 現段階の thoth は `127.0.0.1` 固定でローカル利用のみのため認証は設けない。ただし start/stop/reload など変更系 API は、認証導入時に保護対象として一括で扱えるよう、`/api/apps/{id}/services/{id}/(start|stop|restart)` と `/api/config/reload` に集約する。LAN/VPN 公開や認証方式は #25 で決定し、それまでは thoth 自身を `127.0.0.1` 以外へ公開しない。
+- **認証（#25 との関係）**: 現段階の thoth は `127.0.0.1` 固定でローカル利用のみのため認証は設けない。ただし start/stop/reload など変更系 API は、認証導入時に保護対象として一括で扱えるよう、`/api/apps/{id}/services/{id}/(start|stop|restart)`、`/api/apps/{id}/(start|stop|restart)` と `/api/config/reload` に集約する。LAN/VPN 公開や認証方式は #25 で決定し、それまでは thoth 自身を `127.0.0.1` 以外へ公開しない。
 
 ## 将来拡張
 - `kind: cloud`: スキーマ上は予約。想定は `provider` / `endpoint` / `healthcheck`（http）/ 認証情報参照（env 名のみ）で、起動/停止は対象外（監視のみ）。実装時に別 issue で設計する。
+
+# プロセス制御（#5）
+
+`kind: process` のサービスを API から起動・停止・再起動する（実装: `backend/thoth/process/`、`backend/thoth/api/process.py`）。`kind: scheduled`（launchd）は対象外で、操作すると 400（アプリ単位の操作では `skipped`）。
+
+## API
+| メソッド・パス | 内容 |
+|---|---|
+| `GET /api/apps/{id}/status` / `GET /api/apps/{id}/services/{id}/status` | `state`（`running` / `stopped` / `unsupported`）、`pid`、PID の出所（`pid_file` / `thoth`）、実行中の操作（`busy`） |
+| `POST /api/apps/{id}/services/{id}/(start\|stop\|restart)` | サービス単体。依存サービスは自動で操作しない |
+| `POST /api/apps/{id}/(start\|stop\|restart)` | アプリ単位。起動は依存順、停止は逆順。既に起動中（停止中）のサービスは `skipped`。起動失敗で以降の起動を中断する。結果はサービスごとに `results` で返す |
+
+- ステータス: 起動中に start / 停止中に stop / 全サービスが対象外の操作は **409**、別操作の実行中も 409。未登録の app・service は 404、設定不備（未定義の `${VAR}`、未定義モード、作業ディレクトリ無し）は 422、実行失敗（終了コード異常・タイムアウトなど）は 500。
+- アプリ単位の応答は `{"results": [{service_id, action, result, message}]}`（成功は 200、1 つでも `error` なら 500 の `detail.results`、何も操作できなければ 409 の `detail.results`）。`result` は `ok` / `skipped` / `error`。結果はサービスごとに 1 件（`restart` も同様）。起動・再起動で失敗したサービスより後（依存される側が起動できない）は `skipped`、再起動で停止に失敗した場合は全サービスの起動を行わず `skipped`。
+- エラーメッセージ・履歴には絶対パス・環境変数の値・例外の詳細を含めない（想定外の例外は定型文を返し、詳細はサーバーログのみ）。
+- 変更系は CSRF 対策（Origin/Referer と `X-Thoth-Request: 1`）が必須。ボディは受け取らない。
+- 操作は同期（完了までレスポンスを返さない）。`pid_file` 型の起動は `start_timeout` まで待つ。
+
+## 起動の方式
+- **常駐型**（`pid_file` 無し）: `start` のプロセス自体が対象。thoth は `start_new_session` で別セッション・別プロセスグループとして起動し、PID を DB（`service_process`）に記録する。起動直後に終了した場合は失敗。
+- **起動スクリプト型**（`pid_file` あり。producer-desk の `bin/start.sh` など）: `start` が対象をバックグラウンド起動して終了する。thoth は終了コード 0 と PID ファイルが指す生存プロセスを確認して成功とする。`start_timeout` 内に終了しなければグループごと終了して失敗。
+- 出力はパイプではなくログファイル `<log.dir>/apps/<app_id>.<service_id>.log`（ディレクトリ `0700`、ファイル `0600`。既存ファイルも矯正）へ直接書く。thoth が止まっても対象は詰まらない。5 MiB を超えていれば起動・停止のたびに `.log.1` へ 1 世代だけ退避する。
+- 子プロセスの環境変数は thoth の環境を**そのまま引き継ぐ**（意図的。`PATH` 等が必要なため）が、`LAN_IP` / `TAILSCALE_IP` は選択中モードが参照した場合のみ渡す。`${VAR}` は環境変数の値（env）では「許可リスト変数 + `${` を含まない定義済み env」、`start` / `stop` の argv では定義済み env のみで展開する。
+
+## 二重起動の防止・状態判定
+1. `pid_file` があれば PID ファイルの PID、無ければ DB の記録を見て、生存（ゾンビ除く）かつ起動時刻が一致すれば「起動中」。
+2. PID ファイルの PID を thoth が初めて見る場合は、次のいずれかに当てはまれば別物として扱う（以後、確認できたものは記録して起動時刻で照合）: PID ファイルの更新時刻（+2 秒の猶予。ps の起動時刻は秒精度）より後に始まったプロセス / thoth と別ユーザーのプロセス / `pid_match` が指定されていてコマンドラインに含まれない。**残存リスク**: PID ファイルより前から動いている同一ユーザーの無関係プロセスを指す古い PID ファイルは、`pid_match` を指定しない限り区別できない。`pid_file` を使うサービスには `pid_match` の指定を推奨する。
+3. 停止中でも、`port`（`127.0.0.1` と選択中モードの IP）が待ち受け中なら起動を拒否する（thoth 管理外のプロセスを kill しない）。
+4. 同一サービスの操作は排他。並行した操作は待たずに 409 とする。排他は thoth プロセス内のみ有効（backend は uvicorn 単一プロセス・単一インスタンス前提。複数 worker・複数インスタンスでの同時操作は防げない。ポート検査が補助になるが、`port` 無しのサービスは防げない）。
+
+## 停止
+- `stop` 指定あり: そのコマンドを `stop_timeout` 内に実行し、終了後もプロセスが残れば失敗（SIGKILL へはエスカレーションしない）。終了コード非 0 でもプロセスが止まっていれば成功（メッセージを履歴に残す）。
+- `stop` 省略: 常駐型はプロセスグループ、`pid_file` 型は PID のみに SIGTERM → `stop_timeout` 後 SIGKILL（`pid_file` 型はグループを共有する別プロセスを巻き込まないため）。
+- シグナル送信の直前に、起動時刻が状態判定時と同じか再確認する（入れ替わっていれば送らない）。
+- `pkill` / `killall` / ポート検索での kill はしない。
+
+## thoth 再起動
+対象は thoth と別セッションで動くため、thoth が停止・再起動しても落ちない。再起動後は DB の記録と PID ファイルから状態を引き継ぐ。
+
+## 記録
+- `service_process`: PID と起動時刻（PID 再利用の照合用。コマンドラインは保存しない）。
+- `service_operation`: 操作履歴（`action`、`status` = `succeeded` / `failed` / `rejected`、メッセージ、開始・終了時刻（UTC））。メッセージにコマンド引数・環境変数の値は含めない。
 
 # フロントエンドのテーマとレイアウト（#3）
 
