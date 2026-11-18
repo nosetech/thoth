@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import os
 import re
 from collections.abc import Mapping
@@ -44,6 +45,12 @@ def build_env(
     merged = {k: _expand(v, lookup, f"env.{k}") for k, v in raw.items()}
     if "LAN_IP" in merged and "TAILSCALE_IP" in merged:
         raise ProcessConfigError("LAN_IP と TAILSCALE_IP は同時に指定できません")
+    for name in ALLOWED_THOTH_VARS:
+        if name in merged:
+            try:
+                ipaddress.ip_address(merged[name])
+            except ValueError:
+                raise ProcessConfigError(f"{name} が IP アドレスではありません") from None
     child = {k: v for k, v in src.items() if k not in ALLOWED_THOTH_VARS}
     child.update(merged)
     return child, merged
