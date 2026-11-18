@@ -760,3 +760,85 @@ def test_api_partial_failure_is_500_with_results(tmp_path, mgr):
         ("a", "error"),
         ("b", "skipped"),
     ]
+
+
+def make_two_apps(tmp_path, bad_first: bool):
+    wd = tmp_path / "work"
+    wd.mkdir(exist_ok=True)
+    bad = "[sh, -c, 'exit 1']"
+    ok = "[sleep, '60']"
+    (tmp_path / "apps.yaml").write_text(
+        f"""
+apps:
+  - id: one
+    name: One
+    workdir: {wd}
+    services:
+      - {{id: s, kind: process, start: {bad if bad_first else ok}, stop_timeout: 3}}
+  - id: two
+    name: Two
+    workdir: {wd}
+    services:
+      - {{id: s, kind: process, start: {ok}, stop_timeout: 3}}
+""",
+        encoding="utf-8",
+    )
+    return RegistryHolder(tmp_path / "apps.yaml")
+
+
+def _bulk(holder, mgr, action, query=""):
+    fastapi_app.dependency_overrides[get_registry_holder] = lambda: holder
+    fastapi_app.dependency_overrides[get_process_manager] = lambda: mgr
+    try:
+        return TestClient(fastapi_app).post(f"/api/bulk/{action}{query}", headers=CSRF)
+    finally:
+        fastapi_app.dependency_overrides.clear()
+
+
+def test_bulk_start_stop_all(tmp_path, mgr):
+    holder = make_two_apps(tmp_path, bad_first=False)
+    r = _bulk(holder, mgr, "start")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["status"] == "ok"
+    assert [(a["app_id"], a["status"]) for a in body["apps"]] == [("one", "ok"), ("two", "ok")]
+    # 全て起動中なら skipped（200）
+    assert [a["status"] for a in _bulk(holder, mgr, "start").json()["apps"]] == ["skipped"] * 2
+    r = _bulk(holder, mgr, "stop").json()
+    assert [a["app_id"] for a in r["apps"]] == ["two", "one"]  # 逆順
+    assert r["status"] == "ok"
+
+
+def test_bulk_failure_continue_by_default(tmp_path, mgr):
+    holder = make_two_apps(tmp_path, bad_first=True)
+    body = _bulk(holder, mgr, "start").json()
+    assert body["on_failure"] == "continue" and body["status"] == "partial"
+    assert [(a["app_id"], a["status"]) for a in body["apps"]] == [("one", "error"), ("two", "ok")]
+    assert body["apps"][0]["results"][0]["result"] == "error"
+
+
+def test_bulk_failure_abort(tmp_path, mgr):
+    holder = make_two_apps(tmp_path, bad_first=True)
+    body = _bulk(holder, mgr, "start", "?on_failure=abort").json()
+    assert body["status"] == "failed"
+    assert [(a["app_id"], a["status"]) for a in body["apps"]] == [
+        ("one", "error"),
+        ("two", "skipped"),
+    ]
+    assert body["apps"][1]["results"] == [] and body["apps"][1]["message"]
+    assert not mgr.status(
+        holder.registry.get("two"), holder.registry.get("two").services[0]
+    ).running
+
+
+def test_bulk_requires_csrf_and_valid_params(tmp_path, mgr):
+    holder = make_two_apps(tmp_path, bad_first=False)
+    fastapi_app.dependency_overrides[get_registry_holder] = lambda: holder
+    fastapi_app.dependency_overrides[get_process_manager] = lambda: mgr
+    try:
+        c = TestClient(fastapi_app)
+        assert c.post("/api/bulk/start").status_code == 403
+        assert c.post("/api/bulk/start?on_failure=x", headers=CSRF).status_code == 422
+        assert c.post("/api/bulk/nope", headers=CSRF).status_code == 422
+    finally:
+        fastapi_app.dependency_overrides.clear()

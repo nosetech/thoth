@@ -214,6 +214,17 @@ apps:
 - `service_process`: PID と起動時刻（PID 再利用の照合用。コマンドラインは保存しない）。
 - `service_operation`: 操作履歴（`action`、`status` = `succeeded` / `failed` / `rejected`、メッセージ、開始・終了時刻（UTC））。メッセージにコマンド引数・環境変数の値は含めない。
 
+# 一括操作（#7）
+
+全登録アプリを一括で起動・停止・再起動する（実装: `backend/thoth/api/bulk.py`）。アプリ単位の操作（#5）をアプリごとに順に呼び、結果を集約する。
+
+- `POST /api/bulk/(start|stop|restart)?on_failure=continue|abort`（Origin/Referer と `X-Thoth-Request: 1` 必須、ボディなし）。
+- **順序**: 起動・再起動はアプリ定義の登録順、停止は逆順。各アプリ内のサービスはアプリ単位操作どおり依存順（停止は逆順）。アプリ間の依存は持たない。
+- **失敗時の挙動**: `on_failure` で選ぶ。既定 `continue`（アプリは互いに独立なので、失敗しても残りのアプリを処理する）。`abort` は最初に失敗したアプリ以降を実行せず `skipped`（`results` は空）とする。アプリ内で起動に失敗した場合に以降のサービスを起動しない挙動は #5 のまま。
+- **応答**: 実行できた場合は常に 200。`status`（`ok` / `partial` / `failed`）で全体、`apps[].status`（`ok` / `error` / `skipped`）と `apps[].results`（サービスごとの `ok` / `skipped` / `error`、#5 と同じ）で個別の成否を返す。アプリ単位 API と違い、失敗しても 500 にしない（部分成功を情報として返すため）。全て起動中・停止中でも 409 にせず `skipped` とする。
+- 1 アプリの想定外の例外は、そのアプリを `error`（定型メッセージ）とし、詳細はサーバーログのみ。他のアプリの処理は `on_failure` に従う。
+- 操作は同期で、アプリごとの `start_timeout` / `stop_timeout` の合計だけ時間がかかり得る。
+
 # フロントエンドのテーマとレイアウト（#3）
 
 - UI は [cosmic-ui](https://github.com/rizznme/cosmic-ui)（サイバーパンク調）。npm パッケージではなく shadcn 方式で、コンポーネントのソースを `frontend/components/ui/` に取り込んでいる（`button` / `frame` / `sheet` / `portal` / `presence`。Next.js 用に `"use client"` を付与）。取り込み元は `rizznme/cosmic-ui` の commit `fd06957`（2026-11-17 時点の HEAD）。追加が必要なら同リポジトリの `src/components/ui/` から同様に取り込み、ここの commit を更新する。npm の `cosmic-ui` は無関係の別パッケージなので使わない。
