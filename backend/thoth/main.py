@@ -1,7 +1,7 @@
 import uvicorn
 from fastapi import FastAPI
 
-from thoth.api import apps, health, mode, process
+from thoth.api import apps, bulk, health, mode, process
 from thoth.api.deps import get_config, get_engine, get_registry_holder
 from thoth.db.migrate import upgrade_db
 
@@ -12,6 +12,7 @@ app = FastAPI(title="thoth")
 app.include_router(health.router)
 app.include_router(apps.router)
 app.include_router(process.router)
+app.include_router(bulk.router)
 app.include_router(mode.router)
 
 
