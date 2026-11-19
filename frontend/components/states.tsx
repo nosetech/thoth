@@ -39,8 +39,20 @@ export function LoadingState({ message = "読み込み中..." }: { message?: str
 }
 
 /** データが 0 件のとき。 */
-export function EmptyState({ title, description }: { title: string; description?: string }) {
-  return <StateBox title={title} description={description} />;
+export function EmptyState({
+  title,
+  description,
+  children,
+}: {
+  title: string;
+  description?: string;
+  children?: React.ReactNode;
+}) {
+  return (
+    <StateBox title={title} description={description}>
+      {children}
+    </StateBox>
+  );
 }
 
 /** 取得失敗など。`onRetry` を渡すと再試行ボタンを表示する。 */
@@ -48,16 +60,21 @@ export function ErrorState({
   title = "エラーが発生しました",
   description,
   onRetry,
+  retryLabel = "再試行",
+  children,
 }: {
   title?: string;
   description?: string;
   onRetry?: () => void;
+  retryLabel?: string;
+  children?: React.ReactNode;
 }) {
   return (
     <StateBox title={title} description={description} role="alert" tone="destructive">
+      {children}
       {onRetry && (
         <Button variant="destructive" onClick={onRetry}>
-          再試行
+          {retryLabel}
         </Button>
       )}
     </StateBox>

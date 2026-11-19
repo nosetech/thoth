@@ -1,9 +1,15 @@
 "use client";
 
-import { useRef } from "react";
+import { Ban, Check, ChevronDown, CircleDashed, SkipForward, TriangleAlert } from "lucide-react";
+import {
+  SheetCloseTrigger,
+  SheetContent,
+  SheetDescription,
+  SheetRoot,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { OP, type Action } from "@/lib/apps";
-import { IcAlert, IcCheck, IcChevron, IcHalf, IcSkip, IcX } from "./icons";
-import { useModal } from "./Modal";
+import { Badge, fmtTime, type Tone } from "./parts";
 
 type R = "ok" | "skipped" | "error";
 export type BulkView = {
@@ -20,38 +26,45 @@ export type BulkView = {
   }[];
 };
 
-export const fmtTime = (d: Date | null) =>
-  d ? d.toLocaleTimeString("ja-JP", { hour12: false }) : "—";
-
-const RES = {
-  ok: { cls: "ok", Icon: IcCheck },
-  skipped: { cls: "muted", Icon: IcSkip },
-  error: { cls: "danger", Icon: IcAlert },
+const RES: Record<R, { tone: Tone; Icon: typeof Check }> = {
+  ok: { tone: "ok", Icon: Check },
+  skipped: { tone: "muted", Icon: SkipForward },
+  error: { tone: "danger", Icon: TriangleAlert },
 };
 
 export function ResultBadge({ r }: { r: R }) {
   const m = RES[r];
   return (
-    <span className={`badge b-${m.cls} res-badge`}>
-      <m.Icon size={12} />
-      <span className="mono">{r}</span>
-    </span>
+    <Badge tone={m.tone}>
+      <m.Icon size={12} aria-hidden="true" />
+      <span>{r}</span>
+    </Badge>
   );
 }
 
 const OVERALL = {
-  ok: { label: "成功", cls: "ok", Icon: IcCheck, desc: "すべての対象が正常に完了しました" },
+  ok: {
+    label: "成功",
+    tone: "text-teal-300",
+    Icon: Check,
+    desc: "すべての対象が正常に完了しました",
+  },
   partial: {
     label: "一部失敗",
-    cls: "warn",
-    Icon: IcHalf,
+    tone: "text-amber-300",
+    Icon: CircleDashed,
     desc: "一部のアプリ・サービスでエラーが発生しました",
   },
-  failed: { label: "失敗", cls: "danger", Icon: IcAlert, desc: "完了した操作はありません" },
+  failed: {
+    label: "失敗",
+    tone: "text-rose-300",
+    Icon: TriangleAlert,
+    desc: "完了した操作はありません",
+  },
 };
 export const OVERALL_LABEL = { ok: "成功", partial: "一部失敗", failed: "失敗" };
 
-/** 一括操作の結果。モバイルはボトムシート、md 以上は右サイドシート。 */
+/** 一括操作の結果（cosmic-ui の Sheet。右側に開く）。 */
 export function ResultSheet({
   open,
   result,
@@ -61,109 +74,76 @@ export function ResultSheet({
   result: BulkView | null;
   onClose: () => void;
 }) {
-  const panel = useRef<HTMLElement>(null);
-  const closeRef = useRef<HTMLButtonElement>(null);
-  useModal(open, onClose, panel, closeRef);
-  if (!open || !result) return null;
-  const o = OVERALL[result.overall];
-  const cnt = (r: R) => result.apps.filter((a) => a.result === r).length;
+  const o = result ? OVERALL[result.overall] : null;
+  const cnt = (r: R) => result?.apps.filter((a) => a.result === r).length ?? 0;
   return (
-    <div
-      className="overlay sheet-overlay"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <aside
-        ref={panel}
-        className="sheet"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="sheet-t"
-      >
-        <div className="sheet-grip" aria-hidden="true" />
-        <header className="sheet-head">
-          <div>
-            <p className="eyebrow">BULK RESULT</p>
-            <h2 id="sheet-t">一括{OP[result.op]}の結果</h2>
-            <p className="dim small">
+    <SheetRoot open={open && !!result} onOpenChange={({ open: v }) => !v && onClose()}>
+      <SheetContent className="max-w-md">
+        {result && o && (
+          <>
+            <SheetCloseTrigger aria-label="結果を閉じる" />
+            <p className="text-primary text-xs tracking-widest">BULK RESULT</p>
+            <SheetTitle>一括{OP[result.op]}の結果</SheetTitle>
+            <SheetDescription>
               {fmtTime(result.at)} 実行 · 失敗時:{" "}
               {result.onFail === "continue" ? "続行 (continue)" : "中断 (abort)"}
-            </p>
-          </div>
-          <button
-            ref={closeRef}
-            type="button"
-            className="btn btn-ghost icon"
-            aria-label="結果を閉じる"
-            onClick={onClose}
-          >
-            <IcX />
-          </button>
-        </header>
-        <div className="sheet-body">
-          <div className={`overall o-${o.cls}`}>
-            <o.Icon size={24} />
-            <div>
-              <strong>
-                {o.label} <span className="mono">({result.overall})</span>
-              </strong>
-              <span>{o.desc}</span>
+            </SheetDescription>
+            <div className={`my-4 flex items-center gap-3 border border-primary/30 p-4 ${o.tone}`}>
+              <o.Icon size={24} aria-hidden="true" />
+              <div className="flex flex-col">
+                <strong>
+                  {o.label} ({result.overall})
+                </strong>
+                <span className="text-foreground/70 text-xs">{o.desc}</span>
+              </div>
             </div>
-          </div>
-          <dl className="counts">
-            <div>
-              <dt>
-                <IcCheck size={13} />
-                ok
-              </dt>
-              <dd>{cnt("ok")}</dd>
-            </div>
-            <div>
-              <dt>
-                <IcSkip size={13} />
-                skipped
-              </dt>
-              <dd>{cnt("skipped")}</dd>
-            </div>
-            <div>
-              <dt>
-                <IcAlert size={13} />
-                error
-              </dt>
-              <dd>{cnt("error")}</dd>
-            </div>
-          </dl>
-          <ul className="res-apps">
-            {result.apps.map((a) => (
-              <li key={a.appId}>
-                <details open={a.result === "error"}>
-                  <summary>
-                    <ResultBadge r={a.result} />
-                    <span className="mono strong">{a.name}</span>
-                    <span className="dim res-sum">{a.summary}</span>
-                    <IcChevron size={16} className="chev" />
-                  </summary>
-                  <ul className="res-svcs">
-                    {a.services.map((s) => (
-                      <li key={s.service}>
-                        <ResultBadge r={s.result} />
-                        <span className="mono">{s.service}</span>
-                        <span className="res-msg">{s.message}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </details>
-              </li>
-            ))}
-          </ul>
-        </div>
-        <footer className="sheet-foot">
-          <button type="button" className="btn" onClick={onClose}>
-            閉じる
-          </button>
-        </footer>
-      </aside>
-    </div>
+            <dl className="mb-4 grid grid-cols-3 gap-2 text-center">
+              {(["ok", "skipped", "error"] as const).map((r) => (
+                <div key={r} className="border-primary/30 border p-2">
+                  <dt className="text-foreground/70 flex items-center justify-center gap-1 text-xs">
+                    {r === "ok" ? (
+                      <Check size={13} aria-hidden="true" />
+                    ) : r === "skipped" ? (
+                      <SkipForward size={13} aria-hidden="true" />
+                    ) : (
+                      <Ban size={13} aria-hidden="true" />
+                    )}
+                    {r}
+                  </dt>
+                  <dd className="text-lg font-bold">{cnt(r)}</dd>
+                </div>
+              ))}
+            </dl>
+            <ul className="flex flex-col gap-2">
+              {result.apps.map((a) => (
+                <li key={a.appId} className="border-primary/30 border">
+                  <details open={a.result === "error"} className="group">
+                    <summary className="flex cursor-pointer list-none flex-wrap items-center gap-2 p-3">
+                      <ResultBadge r={a.result} />
+                      <span className="font-bold">{a.name}</span>
+                      <span className="text-foreground/70 min-w-0 flex-1 text-xs">{a.summary}</span>
+                      <ChevronDown
+                        size={16}
+                        aria-hidden="true"
+                        className="transition-transform group-open:rotate-180"
+                      />
+                    </summary>
+                    <ul className="border-primary/20 flex flex-col gap-2 border-t p-3">
+                      {a.services.map((s) => (
+                        <li key={s.service} className="flex flex-wrap items-center gap-2 text-xs">
+                          <ResultBadge r={s.result} />
+                          <span>{s.service}</span>
+                          <span className="text-foreground/70 w-full break-words">{s.message}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+      </SheetContent>
+    </SheetRoot>
   );
 }

@@ -1,8 +1,14 @@
 "use client";
 
-import { useRef, type ReactNode } from "react";
-import { IcAlert, IcInfo } from "./icons";
-import { useModal } from "./Modal";
+import type { ReactNode } from "react";
+import {
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogRoot,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 export type ConfirmCfg = {
   title: string;
@@ -12,52 +18,36 @@ export type ConfirmCfg = {
   onConfirm: () => void;
 };
 
-/** 誤操作防止の確認ダイアログ。キャンセルが既定フォーカス。 */
+/**
+ * 誤操作防止の確認ダイアログ（cosmic-ui の AlertDialog）。キャンセルが先頭で、既定フォーカスになる。
+ * Esc・外側クリックでもキャンセル扱いで閉じる。確認ボタンは破壊的な操作（停止など）なら赤、
+ * そうでなければ（起動）緑。
+ */
 export function ConfirmDialog({ cfg, onClose }: { cfg: ConfirmCfg | null; onClose: () => void }) {
-  const panel = useRef<HTMLDivElement>(null);
-  const cancel = useRef<HTMLButtonElement>(null);
-  useModal(!!cfg, onClose, panel, cancel);
-  if (!cfg) return null;
   return (
-    <div
-      className="overlay"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
+    <AlertDialogRoot
+      open={!!cfg}
+      onOpenChange={({ open }) => !open && onClose()}
+      closeOnEscape
+      closeOnInteractOutside
     >
-      <div
-        ref={panel}
-        className={`dialog ${cfg.destructive ? "is-danger" : ""}`}
-        role="alertdialog"
-        aria-modal="true"
-        aria-labelledby="dlg-t"
-        aria-describedby="dlg-b"
-      >
-        <div className="dlg-head">
-          <span className="dlg-ic">
-            {cfg.destructive ? <IcAlert size={20} /> : <IcInfo size={20} />}
-          </span>
-          <h2 id="dlg-t">{cfg.title}</h2>
-        </div>
-        <div id="dlg-b" className="dlg-body">
-          {cfg.body}
-        </div>
-        <div className="dlg-actions">
-          <button ref={cancel} type="button" className="btn" onClick={onClose}>
-            キャンセル
-          </button>
-          <button
-            type="button"
-            className={`btn ${cfg.destructive ? "btn-danger" : "btn-primary"}`}
-            onClick={() => {
-              onClose();
-              cfg.onConfirm();
-            }}
-          >
-            {cfg.confirmLabel}
-          </button>
-        </div>
-      </div>
-    </div>
+      <AlertDialogContent>
+        {cfg && (
+          <>
+            <AlertDialogTitle>{cfg.title}</AlertDialogTitle>
+            <AlertDialogDescription className="space-y-3 py-4">{cfg.body}</AlertDialogDescription>
+            <div className="flex justify-end gap-3">
+              <AlertDialogCancel>キャンセル</AlertDialogCancel>
+              <AlertDialogAction
+                variant={cfg.destructive ? "destructive" : "success"}
+                onClick={cfg.onConfirm}
+              >
+                {cfg.confirmLabel}
+              </AlertDialogAction>
+            </div>
+          </>
+        )}
+      </AlertDialogContent>
+    </AlertDialogRoot>
   );
 }

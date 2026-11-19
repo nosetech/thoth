@@ -1,33 +1,46 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  Ban,
+  Check,
+  ChevronRight,
+  CircleDashed,
+  FileText,
+  Info,
+  Lock,
+  Play,
+  RefreshCw,
+  RotateCw,
+  Square,
+  TriangleAlert,
+} from "lucide-react";
 import { ConfirmDialog, type ConfirmCfg } from "@/components/apps/ConfirmDialog";
+import { Badge, Spinner, fmtTime, type Tone } from "@/components/apps/parts";
 import {
-  IcAlert,
-  IcApps,
-  IcBan,
-  IcCheck,
-  IcChevron,
-  IcFile,
-  IcHalf,
-  IcInfo,
-  IcLock,
-  IcPlay,
-  IcPlug,
-  IcRefresh,
-  IcRestart,
-  IcStop,
-  IcX,
-  Spinner,
-} from "@/components/apps/icons";
-import {
-  fmtTime,
   OVERALL_LABEL,
   ResultBadge,
   ResultSheet,
   type BulkView,
 } from "@/components/apps/ResultSheet";
 import { useShellStatus } from "@/components/shell/ShellStatus";
+import { EmptyState, ErrorState, LoadingState } from "@/components/states";
+import { Button } from "@/components/ui/button";
+import {
+  RadioGroupItem,
+  RadioGroupItemControl,
+  RadioGroupItemText,
+  RadioGroupLabel,
+  RadioGroupRoot,
+} from "@/components/ui/radio-group";
+import {
+  createToaster,
+  Toaster,
+  ToastCloseTrigger,
+  ToastDescription,
+  ToastRoot,
+  ToastTitle,
+} from "@/components/ui/toast";
 import { apiFetch } from "@/lib/api";
 import {
   appStatus,
@@ -54,52 +67,68 @@ function omit<T>(o: Record<string, T>, k: string): Record<string, T> {
   return Object.fromEntries(Object.entries(o).filter(([key]) => key !== k));
 }
 
-const OpIcon = { start: IcPlay, stop: IcStop, restart: IcRestart };
+const toaster = createToaster({ placement: "bottom-end", overlap: false, gap: 12 });
+
+const OpIcon = { start: Play, stop: Square, restart: RotateCw };
+const OP_VARIANT = { start: "success", stop: "destructive", restart: "secondary" } as const;
 
 type AppView = { def: AppDef; statuses: ServiceStatus[]; mode: ModeInfo | null };
 type Msg = { type: "ok" | "error" | "info"; text: string; at: Date };
-type Toast = { id: string; type: "ok" | "error" | "info"; title: string; text?: string };
+type ToastType = "ok" | "error" | "info";
 
-const APP_ST: Record<AppStatus, { label: string; cls: string; Icon: typeof IcCheck | null }> = {
-  running: { label: "実行中", cls: "ok", Icon: IcCheck },
-  stopped: { label: "停止中", cls: "muted", Icon: IcStop },
-  partial: { label: "一部起動", cls: "warn", Icon: IcHalf },
-  busy: { label: "操作中", cls: "primary", Icon: null },
-  error: { label: "エラー", cls: "danger", Icon: IcAlert },
+const APP_ST: Record<AppStatus, { label: string; tone: Tone; Icon: typeof Check | null }> = {
+  running: { label: "実行中", tone: "ok", Icon: Check },
+  stopped: { label: "停止中", tone: "muted", Icon: Square },
+  partial: { label: "一部起動", tone: "warn", Icon: CircleDashed },
+  busy: { label: "操作中", tone: "primary", Icon: null },
+  error: { label: "エラー", tone: "danger", Icon: TriangleAlert },
 };
+
+const CARD_EDGE: Record<AppStatus, string> = {
+  running: "border-l-success",
+  stopped: "border-l-foreground/30",
+  partial: "border-l-amber-400",
+  busy: "border-l-primary",
+  error: "border-l-destructive",
+};
+
+const BTN = "px-4 py-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-40";
+const CARD = "border border-primary/30 bg-background/70 p-5";
+const IMPACT = "list-disc space-y-1 ps-5 text-xs";
 
 function AppBadge({ status, op }: { status: AppStatus; op?: Action }) {
   const m = APP_ST[status];
   return (
-    <span className={`badge b-${m.cls}`}>
-      {m.Icon ? <m.Icon size={13} /> : <Spinner size={13} />}
+    <Badge tone={m.tone}>
+      {m.Icon ? <m.Icon size={13} aria-hidden="true" /> : <Spinner size={13} />}
       <span>
         {m.label}
         {status === "busy" && op ? `・${OP[op]}` : ""}
       </span>
-    </span>
+    </Badge>
   );
 }
 
 function SvcBadge({ state, busy }: { state: ServiceState; busy?: Action }) {
   if (busy)
     return (
-      <span className="badge b-primary">
+      <Badge tone="primary">
         <Spinner size={12} />
         <span>{OP[busy]}中…</span>
-      </span>
+      </Badge>
     );
-  const m = {
-    running: { cls: "ok", Icon: IcCheck, ja: "実行中" },
-    stopped: { cls: "muted", Icon: IcStop, ja: "停止" },
-    unsupported: { cls: "unsup", Icon: IcBan, ja: "未対応" },
-  }[state];
+  const m: Record<ServiceState, { tone: Tone; Icon: typeof Check; ja: string }> = {
+    running: { tone: "ok", Icon: Check, ja: "実行中" },
+    stopped: { tone: "muted", Icon: Square, ja: "停止" },
+    unsupported: { tone: "unsup", Icon: Ban, ja: "未対応" },
+  };
+  const x = m[state];
   return (
-    <span className={`badge b-${m.cls}`}>
-      <m.Icon size={12} />
-      <span className="mono">{state}</span>
-      <span className="sr-only">({m.ja})</span>
-    </span>
+    <Badge tone={x.tone}>
+      <x.Icon size={12} aria-hidden="true" />
+      <span>{state}</span>
+      <span className="sr-only">({x.ja})</span>
+    </Badge>
   );
 }
 
@@ -110,7 +139,6 @@ function OpButton({
   onClick,
   label,
   reason,
-  emphasis,
 }: {
   op: Action;
   disabled: boolean;
@@ -118,21 +146,31 @@ function OpButton({
   onClick: () => void;
   label: string;
   reason: string | null;
-  emphasis?: boolean;
 }) {
   const Icon = OpIcon[op];
   return (
-    <button
+    <Button
       type="button"
-      className={`btn op op-${op} ${emphasis ? "op-strong" : ""}`}
+      variant={OP_VARIANT[op]}
+      className={BTN}
       disabled={disabled}
       onClick={onClick}
       aria-label={label}
       title={disabled && reason ? reason : label}
     >
-      {busy ? <Spinner size={15} /> : <Icon size={15} />}
-      <span>{OP[op]}</span>
-    </button>
+      {busy ? <Spinner size={14} /> : <Icon size={14} aria-hidden="true" />}
+      <span className="ms-1.5">{OP[op]}</span>
+    </Button>
+  );
+}
+
+function Help({ warn, children }: { warn?: boolean; children: React.ReactNode }) {
+  return (
+    <p
+      className={`flex items-start gap-1.5 text-xs ${warn ? "text-amber-300" : "text-foreground/70"}`}
+    >
+      {children}
+    </p>
   );
 }
 
@@ -146,78 +184,51 @@ function ModeSelector({
   onChange: (m: string) => void;
 }) {
   const { def, mode } = view;
-  const id = `mode-${def.id}`;
   const current = mode?.mode ?? "local";
   const unavailable = (m: string): string | null => {
     if (!def.modes.includes(m)) return "このアプリでは未定義です";
     const o = mode?.modes.find((x) => x.name === m);
     return o && !o.available ? (o.reason ?? "利用できません") : null;
   };
-  const onKey = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"].includes(e.key)) return;
-    e.preventDefault();
-    const btns = [...e.currentTarget.querySelectorAll<HTMLElement>("[role=radio]")];
-    const i = btns.indexOf(document.activeElement as HTMLElement);
-    const d = e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 1;
-    btns[(i + d + btns.length) % btns.length].focus();
-  };
   return (
-    <div className="mode">
-      <div className="mode-label" id={`${id}-l`}>
-        起動モード
-      </div>
-      <div
-        className="seg"
-        role="radiogroup"
-        aria-labelledby={`${id}-l`}
-        aria-describedby={`${id}-h`}
-        onKeyDown={onKey}
+    <div className="flex flex-col gap-2">
+      <RadioGroupRoot
+        value={current}
+        onValueChange={({ value }) => value && value !== current && onChange(value)}
+        orientation="horizontal"
+        className="flex-row flex-wrap items-center gap-x-5 gap-y-2"
       >
+        <RadioGroupLabel className="text-xs">起動モード</RadioGroupLabel>
         {MODES.map((m) => {
           const un = unavailable(m);
-          const selected = current === m;
-          const reason = selected ? null : (un ?? lockReason);
+          const reason = m === current ? null : (un ?? lockReason);
           return (
-            <span className="tip" key={m}>
-              <button
-                type="button"
-                role="radio"
-                aria-checked={selected}
-                aria-disabled={reason ? true : undefined}
-                tabIndex={selected ? 0 : -1}
-                onClick={() => {
-                  if (!reason && !selected) onChange(m);
-                }}
-                aria-label={reason ? `${m}(選択不可: ${reason})` : m}
-              >
-                {un && <IcLock size={12} />}
-                <span className="mono">{m}</span>
-              </button>
-              {reason && (
-                <span className="tip-body" role="tooltip">
-                  {reason}
-                </span>
-              )}
+            <span key={m} title={reason ?? undefined}>
+              <RadioGroupItem value={m} disabled={!!reason}>
+                <RadioGroupItemControl />
+                <RadioGroupItemText className="flex items-center gap-1">
+                  {un && <Lock size={12} aria-hidden="true" />}
+                  {m}
+                </RadioGroupItemText>
+              </RadioGroupItem>
             </span>
           );
         })}
-      </div>
-      <div className="mode-help" id={`${id}-h`}>
-        {lockReason && (
-          <p className="help help-warn">
-            <IcLock size={13} />
-            {lockReason}
-          </p>
-        )}
-        {MODES.filter((m) => unavailable(m)).map((m) => (
-          <p className="help" key={m}>
-            <IcBan size={13} />
-            <span>
-              <code>{m}</code> は選択不可: {unavailable(m)}
-            </span>
-          </p>
-        ))}
-      </div>
+      </RadioGroupRoot>
+      {lockReason && (
+        <Help warn>
+          <Lock size={13} className="mt-0.5 shrink-0" aria-hidden="true" />
+          {lockReason}
+        </Help>
+      )}
+      {MODES.filter((m) => unavailable(m)).map((m) => (
+        <Help key={m}>
+          <Ban size={13} className="mt-0.5 shrink-0" aria-hidden="true" />
+          <span>
+            {m} は選択不可: {unavailable(m)}
+          </span>
+        </Help>
+      ))}
     </div>
   );
 }
@@ -228,7 +239,6 @@ export function AppsManager() {
   const [appBusy, setAppBusy] = useState<Record<string, Action>>({});
   const [svcBusy, setSvcBusy] = useState<Record<string, Action>>({});
   const [msgs, setMsgs] = useState<Record<string, Msg | null>>({});
-  const [toasts, setToasts] = useState<Toast[]>([]);
   const [confirm, setConfirm] = useState<ConfirmCfg | null>(null);
   const [modeBusy, setModeBusy] = useState<Record<string, boolean>>({});
   const [bulkBusy, setBulkBusy] = useState<Action | null>(null);
@@ -250,13 +260,13 @@ export function AppsManager() {
     appsRef.current = apps;
   }, [apps]);
 
-  const toast = useCallback((type: Toast["type"], title: string, text?: string) => {
-    const id = Math.random().toString(36).slice(2);
-    setToasts((t) => [...t, { id, type, title, text }].slice(-4));
-    setTimeout(
-      () => setToasts((t) => t.filter((x) => x.id !== id)),
-      type === "error" ? 8000 : 5000,
-    );
+  const toast = useCallback((type: ToastType, title: string, text?: string) => {
+    toaster.create({
+      title,
+      description: text,
+      type: type === "ok" ? "success" : type,
+      duration: type === "error" ? 8000 : 5000,
+    });
   }, []);
 
   const load = useCallback(async (): Promise<AppView[]> => {
@@ -409,11 +419,10 @@ export function AppsManager() {
       body: (
         <>
           <p>
-            実行中の <b>{running.length} サービス</b>(
-            <span className="mono">{running.map((s) => nameOf(v, s)).join(", ")}</span>)を
-            {OP[op]}します。
+            実行中の <b>{running.length} サービス</b>({running.map((s) => nameOf(v, s)).join(", ")}
+            )を{OP[op]}します。
           </p>
-          <ul className="impact">
+          <ul className={IMPACT}>
             <li>
               {op === "stop"
                 ? "停止後はこのアプリにアクセスできなくなります。"
@@ -442,15 +451,13 @@ export function AppsManager() {
       body: (
         <>
           <p>
-            <span className="mono">{v.def.name}</span> のサービス{" "}
-            <b className="mono">{nameOf(v, svc)}</b>
+            {v.def.name} のサービス <b>{nameOf(v, svc)}</b>
             {st?.pid ? `(PID ${st.pid})` : ""}を{OP[op]}します。
           </p>
-          <ul className="impact">
+          <ul className={IMPACT}>
             {dependents.length ? (
-              <li className="impact-warn">
-                依存しているサービス{" "}
-                <b className="mono">{dependents.map((d) => nameOf(v, d)).join(", ")}</b>{" "}
+              <li className="text-amber-300">
+                依存しているサービス <b>{dependents.map((d) => nameOf(v, d)).join(", ")}</b>{" "}
                 が正常に動作しなくなる可能性があります。
               </li>
             ) : (
@@ -554,17 +561,15 @@ export function AppsManager() {
           <p>
             対象 <b>{targets.length} アプリ</b>のサービスを順番に{OP[op]}します。
           </p>
-          <ul className="target-list">
+          <ul className="list-disc ps-5 text-xs">
             {targets.map((v) => (
-              <li key={v.def.id} className="mono">
-                {v.def.name}
-              </li>
+              <li key={v.def.id}>{v.def.name}</li>
             ))}
           </ul>
-          <ul className="impact">
+          <ul className={IMPACT}>
             {others > 0 && <li>対象外の {others} アプリはスキップされます。</li>}
             {op !== "start" && (
-              <li className="impact-warn">
+              <li className="text-amber-300">
                 {op === "stop"
                   ? "停止したアプリにはアクセスできなくなります。"
                   : "処理中は各アプリに一時的にアクセスできなくなります。"}
@@ -613,8 +618,6 @@ export function AppsManager() {
     return m;
   }, {});
 
-  const retrying = refreshing && screen === "error";
-
   // 共通シェル（サイドバー・モバイルヘッダー）へ更新状態を公開する
   const { setStatus } = useShellStatus();
   const errorCount = counts.error ?? 0;
@@ -634,63 +637,45 @@ export function AppsManager() {
   }, [setStatus, lastUpdated, refreshing, paused, pollErr, cycle, screen, errorCount]);
   useEffect(() => () => setStatus(null), [setStatus]);
 
+  const reloadButton = (
+    <Button
+      type="button"
+      className={BTN}
+      onClick={() => void reloadConfig()}
+      disabled={reloading || anyBusy || screen === "error" || screen === "loading"}
+      title={anyBusy ? "操作中は再読込できません" : "POST /api/config/reload"}
+    >
+      {reloading ? <Spinner /> : <FileText size={14} aria-hidden="true" />}
+      <span className="ms-1.5">設定を再読込</span>
+    </Button>
+  );
+
   const head = (
-    <div className="page-head">
+    <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
       <div>
-        <h1>APPS</h1>
+        <h1 className="text-primary-foreground text-2xl font-bold tracking-widest">APPS</h1>
         {screen === "normal" && apps && (
-          <p className="sub">
+          <p className="text-foreground/80 mt-1">
             {apps.length} アプリ ・ 実行中 {counts.running ?? 0} ・ 一部起動 {counts.partial ?? 0}{" "}
             ・ 停止中 {counts.stopped ?? 0}
-            {counts.error ? <span className="t-danger"> ・ エラー {counts.error}</span> : null}
+            {counts.error ? <span className="text-rose-300"> ・ エラー {counts.error}</span> : null}
           </p>
         )}
       </div>
-      <button
-        type="button"
-        className="btn reload"
-        onClick={() => void reloadConfig()}
-        disabled={reloading || anyBusy || screen === "error" || screen === "loading"}
-        title={anyBusy ? "操作中は再読込できません" : "POST /api/config/reload"}
-      >
-        {reloading ? <Spinner /> : <IcFile size={16} />}
-        <span>設定を再読込</span>
-      </button>
+      {reloadButton}
     </div>
   );
 
   let body: React.ReactNode;
   if (screen === "loading") {
-    body = (
-      <div aria-busy="true" aria-live="polite">
-        <span className="sr-only">アプリ一覧を読み込み中です</span>
-        {[0, 1, 2].map((i) => (
-          <div className="card app sk-card" key={i} aria-hidden="true">
-            <div className="sk" style={{ width: "40%", height: 22 }} />
-            <div className="sk" style={{ width: "75%", height: 14, marginTop: 12 }} />
-            <div className="sk-row">
-              <div className="sk" style={{ width: 170, height: 44 }} />
-              <div className="sk" style={{ width: 240, height: 44 }} />
-            </div>
-            {[0, 1].map((j) => (
-              <div className="sk" key={j} style={{ width: "100%", height: 48, marginTop: 10 }} />
-            ))}
-          </div>
-        ))}
-      </div>
-    );
+    body = <LoadingState message="アプリ一覧を読み込み中です" />;
   } else if (screen === "empty") {
     body = (
-      <div className="card state">
-        <div className="state-ic">
-          <IcApps size={30} />
-        </div>
-        <h2>アプリが登録されていません</h2>
-        <p>
-          <code>config/apps.yaml</code>{" "}
-          に管理したいアプリとサービスを定義し、設定を再読込してください。
-        </p>
-        <pre className="code" aria-label="apps.yaml の記述例">
+      <EmptyState
+        title="アプリが登録されていません"
+        description="config/apps.yaml に管理したいアプリとサービスを定義し、設定を再読込してください。"
+      >
+        <pre className="border-primary/30 bg-background/70 max-w-full overflow-x-auto border p-3 text-left text-xs">
           <code>{`apps:
   - id: my-app
     name: my-app
@@ -701,115 +686,103 @@ export function AppsManager() {
         kind: process
         start: [npm, run, start]`}</code>
         </pre>
-        <button
-          type="button"
-          className="btn btn-primary"
-          onClick={() => void reloadConfig()}
-          disabled={reloading}
-        >
-          {reloading ? <Spinner /> : <IcFile size={16} />}
-          <span>設定を再読込</span>
-        </button>
-      </div>
+        <Button type="button" onClick={() => void reloadConfig()} disabled={reloading}>
+          {reloading ? <Spinner /> : <FileText size={14} aria-hidden="true" />}
+          <span className="ms-1.5">設定を再読込</span>
+        </Button>
+      </EmptyState>
     );
   } else if (screen === "error") {
     body = (
-      <div className="card state state-error" role="alert">
-        <div className="state-ic">
-          <IcPlug size={30} />
-        </div>
-        <h2>バックエンドに接続できません</h2>
-        <p>
-          thoth のバックエンドに接続できませんでした。バックエンドが起動しているか確認してください。
-        </p>
-        <pre className="code">
+      <ErrorState
+        title="バックエンドに接続できません"
+        description="thoth のバックエンドに接続できませんでした。バックエンドが起動しているか確認してください。"
+        retryLabel={refreshing ? "接続を再試行中…" : "再試行"}
+        onRetry={() => {
+          if (refreshing) return;
+          setLoadError(false);
+          void doRefresh(false);
+        }}
+      >
+        <pre className="border-destructive/40 bg-background/70 max-w-full overflow-x-auto border p-3 text-left text-xs">
           <code>$ uv run python -m thoth.main</code>
         </pre>
-        <button
-          type="button"
-          className="btn btn-primary"
-          onClick={() => {
-            setLoadError(false);
-            void doRefresh(false);
-          }}
-          disabled={retrying}
-        >
-          {retrying ? <Spinner /> : <IcRefresh size={16} />}
-          <span>{retrying ? "接続を再試行中…" : "再試行"}</span>
-        </button>
-      </div>
+      </ErrorState>
     );
   } else {
     body = (
-      <>
+      <div className="flex flex-col gap-6">
         {pollErr > 0 && (
-          <div className="banner" role="alert">
-            <IcAlert size={20} />
-            <div>
+          <div
+            role="alert"
+            className="border-destructive/60 bg-destructive/10 flex flex-wrap items-center gap-3 border p-4"
+          >
+            <TriangleAlert size={20} className="text-rose-300" aria-hidden="true" />
+            <div className="min-w-0 flex-1">
               <strong>状態の更新に失敗しました(連続 {pollErr} 回)</strong>
-              <p>
+              <p className="text-foreground/70 text-xs">
                 表示中の状態は {fmtTime(lastUpdated)}{" "}
                 時点のものです。バックエンドを確認してください。
               </p>
             </div>
-            <button
+            <Button
               type="button"
-              className="btn"
+              className={BTN}
               onClick={() => void doRefresh(true)}
               disabled={refreshing}
             >
-              {refreshing ? <Spinner /> : <IcRefresh size={16} />}
-              <span>再試行</span>
-            </button>
+              {refreshing ? <Spinner /> : <RefreshCw size={14} aria-hidden="true" />}
+              <span className="ms-1.5">再試行</span>
+            </Button>
           </div>
         )}
 
-        <section className="card bulk" aria-labelledby="bulk-t">
-          <div className="bulk-head">
-            <h2 id="bulk-t" className="h2">
+        <section className={CARD} aria-labelledby="bulk-t">
+          <div className="mb-4 flex items-baseline gap-3">
+            <h2 id="bulk-t" className="text-lg font-bold">
               一括操作
             </h2>
-            <span className="dim small">全 {apps?.length} アプリ対象</span>
+            <span className="text-foreground/60 text-xs">全 {apps?.length} アプリ対象</span>
           </div>
-          <div className="bulk-grid">
-            <fieldset className="onfail">
-              <legend>失敗時の挙動</legend>
-              <div className="seg seg-radio">
+          <div className="flex flex-wrap items-start justify-between gap-6">
+            <div className="flex flex-col gap-2">
+              <RadioGroupRoot
+                value={onFail}
+                onValueChange={({ value }) => setOnFail(value === "abort" ? "abort" : "continue")}
+                disabled={!!bulkBusy}
+                orientation="horizontal"
+                className="flex-row flex-wrap items-center gap-x-5 gap-y-2"
+              >
+                <RadioGroupLabel className="text-xs">失敗時の挙動</RadioGroupLabel>
                 {(
                   [
                     ["continue", "続行"],
                     ["abort", "中断"],
                   ] as const
                 ).map(([v, l]) => (
-                  <label key={v} className="seg-opt">
-                    <input
-                      type="radio"
-                      name="onfail"
-                      value={v}
-                      checked={onFail === v}
-                      onChange={() => setOnFail(v)}
-                      disabled={!!bulkBusy}
-                    />
-                    <span>
-                      {l} <small className="mono">{v}</small>
-                    </span>
-                  </label>
+                  <RadioGroupItem key={v} value={v}>
+                    <RadioGroupItemControl />
+                    <RadioGroupItemText>
+                      {l} <small className="text-foreground/60">{v}</small>
+                    </RadioGroupItemText>
+                  </RadioGroupItem>
                 ))}
-              </div>
-              <p className="help">
+              </RadioGroupRoot>
+              <Help>
                 {onFail === "continue"
                   ? "失敗したアプリがあっても、残りのアプリの処理を続けます。"
                   : "最初に失敗した時点で中断し、残りのアプリはスキップします。"}
-              </p>
-            </fieldset>
-            <div className="bulk-actions" role="group" aria-label="一括操作">
+              </Help>
+            </div>
+            <div className="flex flex-wrap gap-3" role="group" aria-label="一括操作">
               {OPS.map((op) => {
                 const Icon = OpIcon[op];
                 return (
-                  <button
+                  <Button
                     key={op}
                     type="button"
-                    className={`btn op op-${op} op-strong`}
+                    variant={OP_VARIANT[op]}
+                    className={BTN}
                     disabled={!bulkCan(op)}
                     onClick={() => onBulk(op)}
                     title={
@@ -820,23 +793,23 @@ export function AppsManager() {
                           : "対象となるアプリがありません"
                     }
                   >
-                    {bulkBusy === op ? <Spinner size={15} /> : <Icon size={15} />}
-                    <span>一括{OP[op]}</span>
-                  </button>
+                    {bulkBusy === op ? <Spinner /> : <Icon size={14} aria-hidden="true" />}
+                    <span className="ms-1.5">一括{OP[op]}</span>
+                  </Button>
                 );
               })}
             </div>
           </div>
           {bulkBusy && (
-            <div className="bulk-prog" role="status">
-              <Spinner size={15} />
+            <div role="status" className="text-primary mt-4 flex items-center gap-2 text-xs">
+              <Spinner />
               <span>一括{OP[bulkBusy]}を実行中…</span>
             </div>
           )}
           {bulkResult && !bulkBusy && (
             <button
               type="button"
-              className="btn btn-ghost last-result"
+              className="border-primary/30 hover:bg-primary/10 mt-4 flex w-full cursor-pointer items-center gap-3 border p-3 text-left text-xs"
               onClick={() => setSheetOpen(true)}
             >
               <ResultBadge
@@ -848,16 +821,16 @@ export function AppsManager() {
                       : "error"
                 }
               />
-              <span>
+              <span className="flex-1">
                 前回の一括{OP[bulkResult.op]}の結果を表示({fmtTime(bulkResult.at)}・
                 {bulkResult.overall})
               </span>
-              <IcChevron size={16} />
+              <ChevronRight size={16} aria-hidden="true" />
             </button>
           )}
         </section>
 
-        <div className="app-list">
+        <div className="flex flex-col gap-6">
           {(apps ?? []).map((v) => (
             <AppCard
               key={v.def.id}
@@ -874,7 +847,7 @@ export function AppsManager() {
             />
           ))}
         </div>
-      </>
+      </div>
     );
   }
 
@@ -882,42 +855,34 @@ export function AppsManager() {
     <div>
       {head}
       {body}
-      <div className="toasts" aria-live="polite">
-        {toasts.map((t) => (
-          <div
-            key={t.id}
-            className={`toast t-${t.type}`}
-            role={t.type === "error" ? "alert" : "status"}
+      <Toaster toaster={toaster}>
+        {(t) => (
+          <ToastRoot
+            className={
+              t.type === "error"
+                ? "w-80 max-w-[calc(100vw-3rem)] [--color-frame-1-stroke:var(--color-destructive)] [--color-frame-1-fill:var(--color-destructive)]/20"
+                : "w-80 max-w-[calc(100vw-3rem)]"
+            }
           >
-            <span className="t-ic">
-              {t.type === "error" ? (
-                <IcAlert size={18} />
-              ) : t.type === "ok" ? (
-                <IcCheck size={18} />
-              ) : (
-                <IcInfo size={18} />
-              )}
-            </span>
-            <div className="t-text">
-              <strong>{t.title}</strong>
-              {t.text && <p>{t.text}</p>}
-            </div>
-            <button
-              type="button"
-              className="btn btn-ghost icon"
-              aria-label="通知を閉じる"
-              onClick={() => setToasts((l) => l.filter((x) => x.id !== t.id))}
-            >
-              <IcX size={15} />
-            </button>
-          </div>
-        ))}
-      </div>
+            <ToastTitle className="text-wrap pe-8">{t.title}</ToastTitle>
+            {t.description && (
+              <ToastDescription className="text-wrap">{t.description}</ToastDescription>
+            )}
+            <ToastCloseTrigger />
+          </ToastRoot>
+        )}
+      </Toaster>
       <ConfirmDialog cfg={confirm} onClose={() => setConfirm(null)} />
       <ResultSheet open={sheetOpen} result={bulkResult} onClose={() => setSheetOpen(false)} />
     </div>
   );
 }
+
+const MSG_TONE: Record<Msg["type"], string> = {
+  ok: "border-success/60 bg-success/10",
+  error: "border-destructive/60 bg-destructive/10",
+  info: "border-primary/60 bg-primary/10",
+};
 
 function AppCard({
   v,
@@ -974,37 +939,36 @@ function AppCard({
 
   return (
     <article
-      className="card app"
+      className={`${CARD} border-l-4 ${CARD_EDGE[st]}`}
       data-status={st}
       aria-labelledby={`t-${def.id}`}
       aria-busy={!!busyOp}
     >
-      <header className="app-head">
-        <div className="app-title">
-          <h3 id={`t-${def.id}`} className="mono">
+      <header className="mb-4">
+        <div className="flex flex-wrap items-center gap-3">
+          <h3 id={`t-${def.id}`} className="text-lg font-bold">
             {def.name}
           </h3>
           <AppBadge status={st} op={busyOp} />
         </div>
-        {def.description && <p className="desc">{def.description}</p>}
-        <div className="meta">
+        {def.description && <p className="text-foreground/70 mt-1">{def.description}</p>}
+        <div className="text-foreground/60 mt-2 flex gap-4 text-xs">
           <span>
             実行中{" "}
-            <b className="mono">
+            <b className="text-foreground">
               {running.length}/{sup.length}
             </b>
           </span>
           <span>{def.services.length} サービス</span>
         </div>
       </header>
-      <div className="app-controls">
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <ModeSelector view={v} lockReason={lockReason} onChange={(m) => onMode(v, m)} />
-        <div className="app-actions" role="group" aria-label={`${def.name} の操作`}>
+        <div className="flex flex-wrap gap-3" role="group" aria-label={`${def.name} の操作`}>
           {OPS.map((op) => (
             <OpButton
               key={op}
               op={op}
-              emphasis
               disabled={!can[op]}
               busy={busyOp === op}
               reason={can[op] ? null : why(op)}
@@ -1015,109 +979,99 @@ function AppCard({
         </div>
       </div>
       {msg && (
-        <div className={`msg msg-${msg.type}`} role={msg.type === "error" ? "alert" : "status"}>
+        <div
+          className={`mt-4 flex items-start gap-2 border p-3 text-xs ${MSG_TONE[msg.type]}`}
+          role={msg.type === "error" ? "alert" : "status"}
+        >
           {msg.type === "error" ? (
-            <IcAlert size={16} />
+            <TriangleAlert size={16} aria-hidden="true" />
           ) : msg.type === "ok" ? (
-            <IcCheck size={16} />
+            <Check size={16} aria-hidden="true" />
           ) : (
-            <IcInfo size={16} />
+            <Info size={16} aria-hidden="true" />
           )}
-          <p>
-            <span>{msg.text}</span>
-            <time className="dim">{fmtTime(msg.at)}</time>
+          <p className="min-w-0 flex-1 break-words">
+            <span>{msg.text}</span> <time className="text-foreground/60">{fmtTime(msg.at)}</time>
           </p>
           <button
             type="button"
-            className="btn btn-ghost icon"
+            className="cursor-pointer underline"
             aria-label="メッセージを閉じる"
             onClick={onDismiss}
           >
-            <IcX size={15} />
+            閉じる
           </button>
         </div>
       )}
-      <div className="svc-wrap">
-        <div className="svc-head" aria-hidden="true">
-          <span>サービス</span>
-          <span>状態</span>
-          <span>PID</span>
-          <span>依存</span>
-          <span>操作</span>
-        </div>
-        <ul className="svc-list" aria-label={`${def.name} のサービス`}>
-          {ordered.map((s) => {
-            const ss = stateOf(s.id);
-            const state: ServiceState = ss?.state ?? "unsupported";
-            const unsup = state === "unsupported";
-            const busy = svcBusy[`${def.id}/${s.id}`];
-            const sLock = lock;
-            const sCan = {
-              start: !sLock && state === "stopped",
-              stop: !sLock && state === "running",
-              restart: !sLock && state === "running",
-            };
-            const reason = (op: Action) =>
-              unsup
-                ? `未対応: kind ${s.kind} は thoth から操作できません`
-                : sLock
-                  ? "操作中のため実行できません"
-                  : op === "start"
-                    ? "既に実行中です"
-                    : "サービスが停止中です";
-            return (
-              <Fragment key={s.id}>
-                <li className={`svc ${unsup ? "is-unsup" : ""}`}>
-                  <div className="svc-name">
-                    <span className="mono strong">{s.name || s.id}</span>
-                    <span className="kind mono">{s.kind}</span>
-                  </div>
-                  <div className="svc-status">
-                    <SvcBadge state={state} busy={busy ?? (ss?.busy as Action | undefined)} />
-                  </div>
-                  <div className="svc-meta">
-                    <div className="svc-pid">
-                      <span className="lbl">PID</span>
-                      <span className="mono">{ss?.pid ?? "—"}</span>
-                    </div>
-                    <div className="svc-deps">
-                      <span className="lbl">依存</span>
-                      {s.depends_on.length ? (
-                        s.depends_on.map((d) => (
-                          <span className="chip mono" key={d}>
-                            → {d}
-                          </span>
-                        ))
-                      ) : (
-                        <span className="dim">なし</span>
-                      )}
-                    </div>
-                  </div>
-                  {unsup && (
-                    <p className="unsup-reason">
-                      <IcBan size={14} />
-                      <span>操作できません: kind {s.kind} は thoth から操作できません</span>
-                    </p>
+      <ul className="mt-4 flex flex-col gap-2" aria-label={`${def.name} のサービス`}>
+        {ordered.map((s) => {
+          const ss = stateOf(s.id);
+          const state: ServiceState = ss?.state ?? "unsupported";
+          const unsup = state === "unsupported";
+          const busy = svcBusy[`${def.id}/${s.id}`];
+          const sCan = {
+            start: !lock && state === "stopped",
+            stop: !lock && state === "running",
+            restart: !lock && state === "running",
+          };
+          const reason = (op: Action) =>
+            unsup
+              ? `未対応: kind ${s.kind} は thoth から操作できません`
+              : lock
+                ? "操作中のため実行できません"
+                : op === "start"
+                  ? "既に実行中です"
+                  : "サービスが停止中です";
+          return (
+            <li
+              key={s.id}
+              className={`border-primary/20 flex flex-wrap items-center gap-x-6 gap-y-2 border p-3 ${unsup ? "opacity-70" : ""}`}
+            >
+              <div className="min-w-40 flex-1">
+                <span className="font-bold">{s.name || s.id}</span>{" "}
+                <span className="text-foreground/60 text-xs">{s.kind}</span>
+              </div>
+              <SvcBadge state={state} busy={busy ?? (ss?.busy as Action | undefined)} />
+              <div className="text-foreground/70 flex flex-wrap gap-x-4 text-xs">
+                <span>
+                  PID <span className="text-foreground">{ss?.pid ?? "—"}</span>
+                </span>
+                <span>
+                  依存{" "}
+                  {s.depends_on.length ? (
+                    s.depends_on.map((d) => (
+                      <span className="text-foreground me-1" key={d}>
+                        → {d}
+                      </span>
+                    ))
+                  ) : (
+                    <span>なし</span>
                   )}
-                  <div className="svc-actions" role="group" aria-label={`${s.name || s.id} の操作`}>
-                    {OPS.map((op) => (
-                      <OpButton
-                        key={op}
-                        op={op}
-                        disabled={!sCan[op]}
-                        busy={busy === op}
-                        reason={sCan[op] ? null : reason(op)}
-                        onClick={() => onSvcOp(v, s, op)}
-                        label={`${def.name} / ${s.name || s.id} を${OP[op]}`}
-                      />
-                    ))}
-                  </div>
-                </li>
-              </Fragment>
-            );
-          })}
-        </ul>
-      </div>
+                </span>
+              </div>
+              {unsup && (
+                <p className="text-foreground/70 flex w-full items-center gap-1.5 text-xs">
+                  <Ban size={14} aria-hidden="true" />
+                  <span>操作できません: kind {s.kind} は thoth から操作できません</span>
+                </p>
+              )}
+              <div className="flex gap-2" role="group" aria-label={`${s.name || s.id} の操作`}>
+                {OPS.map((op) => (
+                  <OpButton
+                    key={op}
+                    op={op}
+                    disabled={!sCan[op]}
+                    busy={busy === op}
+                    reason={sCan[op] ? null : reason(op)}
+                    onClick={() => onSvcOp(v, s, op)}
+                    label={`${def.name} / ${s.name || s.id} を${OP[op]}`}
+                  />
+                ))}
+              </div>
+            </li>
+          );
+        })}
+      </ul>
     </article>
   );
 }
