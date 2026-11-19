@@ -91,6 +91,13 @@ backend 8900 / frontend 3900。既存アプリ（deep-tracker 8700/3700、focara
 
 登録時（YAML 読み込み・再読み込み）に検証し、不正なものは拒否する（type に応じた必須/禁止キー、`expect_status` は 100〜599、`timeout <= interval`、`tcp` は `port` 必須、未知キーはエラー）。1 回分の実行は `thoth/health/probe.py`（http はリダイレクト非追従、command は `shell=False`。結果に応答本文・コマンド出力は含めない）。
 
+### 定期実行と履歴（#12）
+- backend の `lifespan` で常駐ループ（`thoth/health/monitor.py`）を動かし、process サービスごとに `healthcheck.interval` で `probe` を実行する。想定外の例外はログに残してループを継続する。thoth が稼働中と把握していないサービス（停止中）はチェックしない。
+- 結果は `health_result`（`ok` / 定型 `message` / `checked_at`）に保存する。応答本文・コマンド出力は保存しない。保持期間は `config.yaml` の `health.retention_days`（既定 7 日）。起動時と 1 時間ごとに期限切れを削除する。
+- 状態は保存済みの結果から求める: `healthy`（最新が成功）/ `starting`（失敗だが thoth の起動記録から `start_grace` 内）/ `unhealthy`（`failure_threshold` 回連続で失敗）/ `unknown`（結果が無い・最新が `interval` の 3 倍（下限 60 秒）より古い・停止中）。失敗が閾値未満の間は直前の成功を引き継ぎ `healthy`。
+- `GET /api/service-health`（全 process サービスの状態）、`GET /api/service-health/{app_id}/{service_id}/history?limit=`（新しい順、既定 100・最大 500）。
+- UI での状態・履歴表示は、Artifact のデザインに該当画面が無いためデザイン確定後に実装する。
+
 ## 起動モード（local / LAN / VPN）
 アプリ単位で選択する。`modes.<name>` は、そのモード選択時に Service の `start` / `env` へ渡す変数・環境変数を定義する。
 

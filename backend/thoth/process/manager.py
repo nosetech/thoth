@@ -65,6 +65,18 @@ class ServiceResult:
 
 
 @dataclass(frozen=True)
+class ProbeInputs:
+    running: bool
+    pid: int | None
+    env: dict[str, str]
+    defined: dict[str, str]
+    cwd: Path
+    host: str
+    allowed_hosts: tuple[str, ...]
+    started_at: datetime | None  # thoth が記録した起動時刻（起動直後の猶予判定用）
+
+
+@dataclass(frozen=True)
 class _Record:
     pid: int
     proc_started: str
@@ -128,6 +140,29 @@ class ProcessManager:
         with self._guard:
             busy = self._busy.get((app.id, svc.id))
         return ServiceStatus(st.running, st.pid, st.source, busy)
+
+    def probe_inputs(self, app: App, svc: ProcessService) -> ProbeInputs:
+        """ヘルスチェックの実行に必要な入力（PID・環境・作業ディレクトリ・到達先ホスト）。"""
+        st = self._inspect(app, svc)
+        env, defined = self._env(app, svc)
+        allowed = tuple(defined[k] for k in ALLOWED_THOTH_VARS if k in defined)
+        started = None
+        with Session(self._engine) as s:
+            row = s.get(ServiceProcess, (app.id, svc.id))
+            if row is not None:
+                started = row.recorded_at
+        return ProbeInputs(
+            running=st.running,
+            pid=st.pid,
+            env=env,
+            defined=defined,
+            cwd=self._service_dir(app, svc),
+            host=allowed[0]
+            if allowed
+            else "127.0.0.1",  # LAN/VPN モードは当該 IP にのみ bind し得る
+            allowed_hosts=allowed,
+            started_at=started,
+        )
 
     def start(self, app: App, svc: Service) -> str | None:
         proc = self._require_process(svc)
