@@ -238,7 +238,7 @@ apps:
 
 `/apps`（`frontend/app/apps/`、`frontend/components/AppsManager.tsx`、`frontend/components/apps/`）。デザイン Artifact の操作イメージ（画面構成・状態遷移・文言・操作フロー）をもとに、cosmic-ui のコンポーネントと Tailwind のユーティリティだけで実装している。独自の CSS ファイルは持たない。
 - データは `/api/apps`・`/api/apps/{id}/status`・`/api/apps/{id}/mode` を 5 秒ごとにポーリング（タブ非表示中は停止、一時停止可）。操作はアプリ/サービス単位・一括（`on_failure` 選択）。停止・再起動・一括操作は確認ダイアログ（キャンセルが既定フォーカス）。
-- 使用している cosmic-ui: `Button`（操作ボタン。操作ごとに `success` / `destructive` / `secondary`）、`RadioGroup`（起動モード・失敗時の挙動）、`AlertDialog`（確認ダイアログ。キャンセルが先頭で既定フォーカス）、`Sheet`（一括操作の結果、モバイルのドロワー）、`Toast`（通知）。状態表示は `components/states.tsx`（`LoadingState` / `EmptyState` / `ErrorState`）。
+- 使用している cosmic-ui: `Button`（操作ボタン。操作ごとに `success` / `destructive` / `secondary`）、`RadioGroup`（起動モード・失敗時の挙動）、`AlertDialog`（確認ダイアログ。キャンセルが先頭で既定フォーカス。Esc・外側クリックでキャンセル。確認ボタンは停止・再起動が赤、起動が緑。`variant` を通すよう最小限の変更あり）、`Sheet`（一括操作の結果、モバイルのドロワー）、`Toast`（通知）。状態表示は `components/states.tsx`（`LoadingState` / `EmptyState` / `ErrorState`）。
 - cosmic-ui に該当部品が無いもの（状態バッジ・スピナー、`components/apps/parts.tsx`）は、Tailwind のユーティリティによる最小限の小部品とした。
 - 共通シェル（`AppShell`）: ロゴ・ナビ・エラー件数バッジ・更新コントロール（最終更新・更新・一時停止）・バックエンド接続表示・サイドバー折りたたみ（`localStorage` の `thoth.sidebar`）・モバイルヘッダー・ドロワー（`Sheet`）。ページは `ShellStatusProvider`（`components/shell/ShellStatus.tsx`）経由で更新状態と操作をシェルへ公開する。
 - デザインとの差分（操作イメージ上の未実装）: 更新の進行バーは未実装（cosmic-ui に該当部品が無いため）。アプリ URL（API に無い）と一括操作のアプリごとの進捗バー（同期 API のため）は未実装。ダッシュボード/ログ/リソース画面の中身はデザイン対象外（別 issue）。

@@ -18,10 +18,19 @@ export type ConfirmCfg = {
   onConfirm: () => void;
 };
 
-/** 誤操作防止の確認ダイアログ（cosmic-ui の AlertDialog）。キャンセルが先頭で、既定フォーカスになる。 */
+/**
+ * 誤操作防止の確認ダイアログ（cosmic-ui の AlertDialog）。キャンセルが先頭で、既定フォーカスになる。
+ * Esc・外側クリックでもキャンセル扱いで閉じる。確認ボタンは破壊的な操作（停止など）なら赤、
+ * そうでなければ（起動）緑。
+ */
 export function ConfirmDialog({ cfg, onClose }: { cfg: ConfirmCfg | null; onClose: () => void }) {
   return (
-    <AlertDialogRoot open={!!cfg} onOpenChange={({ open }) => !open && onClose()}>
+    <AlertDialogRoot
+      open={!!cfg}
+      onOpenChange={({ open }) => !open && onClose()}
+      closeOnEscape
+      closeOnInteractOutside
+    >
       <AlertDialogContent>
         {cfg && (
           <>
@@ -29,7 +38,12 @@ export function ConfirmDialog({ cfg, onClose }: { cfg: ConfirmCfg | null; onClos
             <AlertDialogDescription className="space-y-3 py-4">{cfg.body}</AlertDialogDescription>
             <div className="flex justify-end gap-3">
               <AlertDialogCancel>キャンセル</AlertDialogCancel>
-              <AlertDialogAction onClick={cfg.onConfirm}>{cfg.confirmLabel}</AlertDialogAction>
+              <AlertDialogAction
+                variant={cfg.destructive ? "destructive" : "success"}
+                onClick={cfg.onConfirm}
+              >
+                {cfg.confirmLabel}
+              </AlertDialogAction>
             </div>
           </>
         )}

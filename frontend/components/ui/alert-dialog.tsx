@@ -1,5 +1,6 @@
 "use client";
 
+// thoth 変更: AlertDialogAction に `variant` を通す（既定は取り込み元と同じ destructive）。
 import { createContext, useContext, useId } from "react";
 import { twMerge } from "tailwind-merge";
 import { useMachine, normalizeProps } from "@zag-js/react";
@@ -125,16 +126,18 @@ function AlertDialogAction({
   children,
   className,
   onClick,
+  variant = "destructive",
 }: React.PropsWithChildren<{
   className?: string;
   onClick?: (event: React.MouseEvent<HTMLButtonElement>) => void;
+  variant?: React.ComponentProps<typeof Button>["variant"];
 }>) {
   const api = useAlertDialogContext();
   const triggerProps = api.getCloseTriggerProps();
 
   return (
     <Button
-      variant="destructive"
+      variant={variant}
       {...triggerProps}
       // The consumer's handler runs first (it does the actual delete/confirm
       // action); triggerProps.onClick then closes the dialog, unless that
