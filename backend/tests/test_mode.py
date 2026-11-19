@@ -87,3 +87,19 @@ def test_unsafe_ip_rejected(tmp_path, ip):
         build_env(a, a.services[0], "lan", {"LAN_IP": ip})
     env, _ = build_env(a, a.services[0], "lan", {"LAN_IP": "fd00::1"})
     assert env["LAN_IP"] == "fd00::1"
+
+
+@pytest.mark.parametrize(
+    ("origin", "expected"),
+    [
+        ("http://192.168.0.5:3900", 200),  # LAN_IP
+        ("http://100.64.0.1:3900", 200),  # TAILSCALE_IP
+        ("http://192.168.0.6:3900", 403),  # 未設定の IP
+        ("http://192.168.0.5:9999", 403),  # ポート違い
+    ],
+)
+def test_set_mode_allows_lan_vpn_origin(api, monkeypatch, origin, expected):
+    monkeypatch.setenv("TAILSCALE_IP", "100.64.0.1")
+    headers = {"Origin": origin, "X-Thoth-Request": "1"}
+    r = api.put("/api/apps/demo/mode", json={"mode": "local"}, headers=headers)
+    assert r.status_code == expected
