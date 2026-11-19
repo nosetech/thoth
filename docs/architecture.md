@@ -166,10 +166,10 @@ apps:
 ## セキュリティ方針
 - **起動コマンドは設定ファイルでの登録のみ**。API は `app_id` / `service_id` と操作種別（start/stop/restart）しか受け取らず、コマンド文字列・環境変数・作業ディレクトリを入力として受け付けない。
 - コマンドは argv 配列で `shell=False` 実行。`${VAR}` 展開は許可リスト（`LAN_IP` / `TAILSCALE_IP` と、定義済み `env` のキー）のみで、展開結果をシェルに渡さない。
-- **CSRF 対策**: 変更系 API（POST/PUT/PATCH/DELETE）は、`Origin`（無ければ `Referer`）が thoth の frontend オリジン（`127.0.0.1:<frontend.port>` / `localhost:<frontend.port>`）と一致しない場合は 403 とし、あわせてカスタムヘッダ `X-Thoth-Request: 1` を必須とする。悪意ある Web ページからのクロスサイト POST で start/stop/reload を実行させないため。frontend の Route Handler がヘッダを付与して中継する。認証（#25）導入前の最低限の防御であり、認証導入後も維持する。
+- **CSRF 対策**: 変更系 API（POST/PUT/PATCH/DELETE）は、`Origin`（無ければ `Referer`）が thoth の frontend オリジン（`127.0.0.1:<frontend.port>` / `localhost:<frontend.port>`、および thoth の環境変数 `LAN_IP` / `TAILSCALE_IP` が有効な IP のとき `<その IP>:<frontend.port>`）と一致しない場合は 403 とし、あわせてカスタムヘッダ `X-Thoth-Request: 1` を必須とする。悪意ある Web ページからのクロスサイト POST で start/stop/reload を実行させないため。frontend の Route Handler がヘッダを付与して中継する。認証（#25）導入前の最低限の防御であり、認証導入後も維持する。
 - 設定ファイル自体が実行権限を持つため、`config/` は所有者のみ書込可（`0600`/`0700` を推奨、起動時に group/other 書込可なら警告）。
 - ログ・API 応答では環境変数の値を既定でマスクする（キー名のみ表示）。ヘルスチェック URL のホストはループバックと thoth 自身の許可リスト変数に限定し、SSRF を防ぐ。
-- **認証（#25 との関係）**: 現段階の thoth は `127.0.0.1` 固定でローカル利用のみのため認証は設けない。ただし start/stop/reload など変更系 API は、認証導入時に保護対象として一括で扱えるよう、`/api/apps/{id}/services/{id}/(start|stop|restart)`、`/api/apps/{id}/(start|stop|restart)` と `/api/config/reload` に集約する。LAN/VPN 公開や認証方式は #25 で決定し、それまでは thoth 自身を `127.0.0.1` 以外へ公開しない。
+- **認証（#25 との関係）**: 現段階の thoth は `127.0.0.1` 固定でローカル利用のみのため認証は設けない。ただし start/stop/reload など変更系 API は、認証導入時に保護対象として一括で扱えるよう、`/api/apps/{id}/services/{id}/(start|stop|restart)`、`/api/apps/{id}/(start|stop|restart)` と `/api/config/reload` に集約する。認証方式は #25 で決定する。LAN/VPN からの操作は、frontend を `LAN_IP` / `TAILSCALE_IP` で公開した場合にその Origin を CSRF で許可することで可能にしている（認証は無いため、信頼できるネットワークでのみ公開すること。backend は常に `127.0.0.1`）。
 
 ## 将来拡張
 - `kind: cloud`: スキーマ上は予約。想定は `provider` / `endpoint` / `healthcheck`（http）/ 認証情報参照（env 名のみ）で、起動/停止は対象外（監視のみ）。実装時に別 issue で設計する。
