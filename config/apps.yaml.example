@@ -23,6 +23,7 @@ apps:
         pid_file: logs/app.pid
         pid_match: app.main   # 古い PID ファイル対策。PID のコマンドラインに含まれる文字列（推奨）
         port: 8001
+        healthcheck: { type: pid, interval: 60 }   # tcp / http / pid / command から選ぶ
         start_timeout: 300   # start の終了を待つ上限（秒）。既定 30
         stop_timeout: 60
       - id: daily-job

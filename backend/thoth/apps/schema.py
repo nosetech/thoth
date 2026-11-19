@@ -22,9 +22,9 @@ class _Strict(BaseModel):
 
 
 class Healthcheck(_Strict):
-    type: Literal["tcp", "http", "command"]
+    type: Literal["tcp", "http", "pid", "command"]
     url: str | None = None
-    expect_status: list[int] = [200]
+    expect_status: list[int] = Field([200], min_length=1)
     command: Argv | None = None
     interval: int = Field(30, gt=0)
     timeout: int = Field(5, gt=0)
@@ -33,6 +33,10 @@ class Healthcheck(_Strict):
 
     @model_validator(mode="after")
     def _check(self) -> Healthcheck:
+        if any(not 100 <= c <= 599 for c in self.expect_status):
+            raise ValueError("expect_status は 100〜599 の HTTP ステータスで指定してください")
+        if self.timeout > self.interval:
+            raise ValueError("timeout は interval 以下にしてください")
         if self.type == "http":
             if not self.url:
                 raise ValueError("type が http の場合は url が必須です")
@@ -83,6 +87,8 @@ class ProcessService(_ServiceBase):
     def _check_pid_match(self) -> ProcessService:
         if self.pid_match is not None and self.pid_file is None:
             raise ValueError("pid_match は pid_file と一緒に指定してください")
+        if self.healthcheck is not None and self.healthcheck.type == "tcp" and self.port is None:
+            raise ValueError("healthcheck.type が tcp の場合は port が必須です")
         return self
 
 
