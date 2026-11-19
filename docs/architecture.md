@@ -80,14 +80,16 @@ backend 8900 / frontend 3900。既存アプリ（deep-tracker 8700/3700、focara
 ### Healthcheck
 | キー | 型 | 既定 | 説明 |
 |---|---|---|---|
-| `type` | enum | | `tcp` / `http` / `command` |
+| `type` | enum | | `tcp`（サービスの `port` に接続。`port` 必須）/ `http` / `pid`（thoth が把握する PID の生存）/ `command` |
 | `url` | str | | `http` 用。ホストはループバック（`127.0.0.1` / `localhost`）、または `${LAN_IP}` / `${TAILSCALE_IP}`（選択中モードで解決されたもの）に限定。LAN/VPN モードでアプリが当該 IP にのみ bind する場合に対応する |
 | `expect_status` | list[int] | `[200]` | `http` の期待ステータス |
 | `command` | list[str] | | `command` 用。終了コード 0 を正常とする。argv 配列・`shell=False`。作業ディレクトリと環境変数は Service と同じ（`workdir` / マージ済み `env`、選択中モードの変数を含む） |
-| `interval` | int(秒) | 30 | 実行間隔 |
-| `timeout` | int(秒) | 5 | 1 回のタイムアウト |
+| `interval` | int(秒) | 30 | 実行間隔（1 以上） |
+| `timeout` | int(秒) | 5 | 1 回のタイムアウト（`interval` 以下） |
 | `start_grace` | int(秒) | 30 | 起動直後の猶予（この間の失敗は「起動中」扱い） |
-| `failure_threshold` | int | 3 | 連続失敗でサービスを「異常」とする回数 |
+| `failure_threshold` | int | 3 | 連続失敗でサービスを「異常」とする回数（1 以上） |
+
+登録時（YAML 読み込み・再読み込み）に検証し、不正なものは拒否する（type に応じた必須/禁止キー、`expect_status` は 100〜599、`timeout <= interval`、`tcp` は `port` 必須、未知キーはエラー）。1 回分の実行は `thoth/health/probe.py`（http はリダイレクト非追従、command は `shell=False`。結果に応答本文・コマンド出力は含めない）。
 
 ## 起動モード（local / LAN / VPN）
 アプリ単位で選択する。`modes.<name>` は、そのモード選択時に Service の `start` / `env` へ渡す変数・環境変数を定義する。
