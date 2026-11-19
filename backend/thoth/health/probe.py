@@ -32,10 +32,13 @@ def probe(
     cwd: Path | None = None,
     host: str = "127.0.0.1",
     url: str | None = None,
+    allowed_hosts: tuple[str, ...] = (),
 ) -> ProbeResult:
     """healthcheck（省略時は port があれば tcp、無ければ pid）を 1 回実行する。
 
-    url は ``${LAN_IP}`` 等を解決済みの URL（省略時は設定値）。
+    url は ``${LAN_IP}`` 等を解決済みの URL（省略時は設定値）。ホストは
+    127.0.0.1 / localhost / allowed_hosts（選択中モードの IP）に限る。
+    pid は呼び出し側が起動時刻などで検証済みの PID を渡す前提（再利用の照合はここでは行わない）。
     """
     hc = svc.healthcheck
     if hc is None:
@@ -44,7 +47,7 @@ def probe(
         if hc.type == "tcp":
             return _tcp(svc.port, host, hc.timeout)
         if hc.type == "http":
-            return _http(url or hc.url or "", hc)
+            return _http(url or hc.url or "", hc, allowed_hosts)
         if hc.type == "pid":
             return _pid(pid)
         return _command(hc, env, cwd)
@@ -62,10 +65,12 @@ def _tcp(port: int | None, host: str, timeout: float) -> ProbeResult:
         return ProbeResult(False, f"{host}:{port} に接続できません")
 
 
-def _http(url: str, hc: Healthcheck) -> ProbeResult:
+def _http(url: str, hc: Healthcheck, allowed_hosts: tuple[str, ...]) -> ProbeResult:
     u = urlsplit(url)
     if u.scheme not in ("http", "https") or not u.hostname:
         return ProbeResult(False, "url が不正です")
+    if u.hostname not in ("127.0.0.1", "localhost", *allowed_hosts):
+        return ProbeResult(False, "url のホストが許可されていません")
     cls = http.client.HTTPSConnection if u.scheme == "https" else http.client.HTTPConnection
     conn = cls(u.hostname, u.port, timeout=hc.timeout)
     try:
@@ -98,7 +103,9 @@ def _command(hc: Healthcheck, env: Mapping[str, str] | None, cwd: Path | None) -
             cwd=cwd,
             env=None if env is None else dict(env),
             stdin=subprocess.DEVNULL,
-            capture_output=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
             timeout=hc.timeout,
             check=False,
         )

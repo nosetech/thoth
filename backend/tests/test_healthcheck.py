@@ -111,3 +111,23 @@ def test_invalid_config_rejected(tmp_path, hc, port, msg):
     with pytest.raises(AppsConfigError) as e:
         load_apps(p)
     assert msg in "\n".join(e.value.errors)
+
+
+def test_http_host_restricted():
+    s = svc({"type": "http", "url": "http://localhost/"})
+    r = probe(s, url="http://evil.example.com/")
+    assert not r.ok and "許可" in r.message
+    assert "許可" not in probe(s, url="http://10.0.0.5:1/", allowed_hosts=("10.0.0.5",)).message
+
+
+def test_command_grandchild_does_not_hang():
+    import time
+
+    hc = {
+        "type": "command",
+        "command": ["/bin/sh", "-c", "sleep 5 & wait"],
+        "timeout": 1,
+    }
+    t = time.monotonic()
+    assert not probe(svc(hc)).ok
+    assert time.monotonic() - t < 3
