@@ -58,6 +58,8 @@ def evaluate(
     - failure_threshold 回連続で失敗 → unhealthy
     - それ未満は直前の成功が残っていれば healthy、無ければ unknown
     """
+    if started_at is not None:  # 今回の起動より前の結果は引き継がない
+        samples = [x for x in samples if x.checked_at >= started_at]
     if not samples:
         return "unknown"
     last = samples[0]
@@ -218,21 +220,24 @@ class HealthMonitor:
         if targets:
             await asyncio.gather(*(self._check(a, s) for a, s, _ in targets))
 
-    async def _check(self, app: App, svc: ProcessService) -> None:
-        try:
-            result = await asyncio.to_thread(run_probe, self._mgr, app, svc)
-            if result is None:
-                return
-            with Session(self._engine) as s:
-                s.add(
-                    HealthResult(
-                        app_id=app.id,
-                        service_id=svc.id,
-                        ok=result.ok,
-                        message=result.message[:_MESSAGE_LIMIT],
-                        checked_at=datetime.now(UTC),
-                    )
+    def _check_sync(self, app: App, svc: ProcessService) -> None:
+        result = run_probe(self._mgr, app, svc)
+        if result is None:
+            return
+        with Session(self._engine) as s:
+            s.add(
+                HealthResult(
+                    app_id=app.id,
+                    service_id=svc.id,
+                    ok=result.ok,
+                    message=result.message[:_MESSAGE_LIMIT],
+                    checked_at=datetime.now(UTC),
                 )
-                s.commit()
+            )
+            s.commit()
+
+    async def _check(self, app: App, svc: ProcessService) -> None:
+        try:  # チェックと保存はイベントループを止めないようスレッドで行う
+            await asyncio.to_thread(self._check_sync, app, svc)
         except Exception:
             logger.exception("ヘルスチェックに失敗: %s/%s", app.id, svc.id)

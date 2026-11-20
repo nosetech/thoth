@@ -12,7 +12,7 @@ export type HealthSample = { ok: boolean; message: string | null; checked_at: st
 /** ヘルス状態のキー（app_id/service_id）。 */
 export const hkey = (appId: string, serviceId: string) => `${appId}/${serviceId}`;
 
-export const HEALTH_RETENTION_NOTE = "履歴は保持期間（既定 7 日）を過ぎると自動で削除されます";
+export const HEALTH_RETENTION_NOTE = "保持期間（既定 7 日）を過ぎた履歴は自動で削除されます";
 export const STRIP_SIZE = 30;
 
 /** 経過時間の表示（「12 秒前」など）。未来や不正な値は「たった今」。 */

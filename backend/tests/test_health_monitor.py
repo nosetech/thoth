@@ -181,3 +181,9 @@ def test_api(tmp_path, engine):  # noqa: F811
         assert c.get("/api/service-health/demo/web/history?limit=0").status_code == 422
     finally:
         fastapi_app.dependency_overrides.clear()
+
+
+def test_evaluate_ignores_samples_before_start():
+    started = NOW - timedelta(seconds=3)
+    # 起動前の成功は引き継がない
+    assert evaluate([s(True, ago=20)], HC, NOW, started) == "unknown"
