@@ -96,7 +96,7 @@ backend 8900 / frontend 3900。既存アプリ（deep-tracker 8700/3700、focara
 - 結果は `health_result`（`ok` / 定型 `message` / `checked_at`）に保存する。応答本文・コマンド出力は保存しない。保持期間は `config.yaml` の `health.retention_days`（既定 7 日）。起動時と 1 時間ごとに期限切れを削除する。
 - 状態は保存済みの結果から求める: `healthy`（最新が成功）/ `starting`（失敗だが thoth の起動記録から `start_grace` 内）/ `unhealthy`（`failure_threshold` 回連続で失敗）/ `unknown`（結果が無い・最新が `interval` の 3 倍（下限 60 秒）より古い・停止中）。失敗が閾値未満の間は直前の成功を引き継ぎ `healthy`。
 - `GET /api/service-health`（全 process サービスの状態）、`GET /api/service-health/{app_id}/{service_id}/history?limit=`（新しい順、既定 100・最大 500）。
-- UI での状態・履歴表示は、Artifact のデザインに該当画面が無いためデザイン確定後に実装する。
+- UI: アプリ一覧のサービス行に状態バッジ・最新メッセージ・最終チェック・「履歴」ボタン、アプリカードに集計バッジと異常アラート、履歴は右側 Sheet（推移ストリップ＋明細）。状態の取得は一覧の定期更新（5 秒）と同じ周期で、取得に失敗してもサービス操作は継続でき、ヘルス表示のみ「取得できません」にする。デザインは `docs/design-prompt-ui-health.md` の指示で更新したもの。
 
 ## 起動モード（local / LAN / VPN）
 アプリ単位で選択する。`modes.<name>` は、そのモード選択時に Service の `start` / `env` へ渡す変数・環境変数を定義する。
