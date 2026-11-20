@@ -16,3 +16,6 @@ log:
 
 apps:
   path: ../config/apps.yaml   # アプリ定義。同階層の apps.d/*.yaml も読む。backend/ 基準
+
+health:
+  retention_days: 7           # ヘルスチェック履歴の保持期間（日）

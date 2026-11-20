@@ -40,6 +40,11 @@ class LogConfig:
 
 
 @dataclass(frozen=True)
+class HealthConfig:
+    retention_days: int = 7  # ヘルスチェック履歴の保持期間（日）
+
+
+@dataclass(frozen=True)
 class AppsConfig:
     path: str | None = None  # 未指定時は DEFAULT_APPS_PATH（無くても可）。明示時は必須
 
@@ -52,6 +57,7 @@ class Config:
     db: DbConfig = field(default_factory=DbConfig)
     log: LogConfig = field(default_factory=LogConfig)
     apps: AppsConfig = field(default_factory=AppsConfig)
+    health: HealthConfig = field(default_factory=HealthConfig)
 
     def resolve_path(self, value: str) -> Path:
         """相対パスは backend/ 基準で解決する。"""
@@ -88,7 +94,7 @@ def parse_config(raw: Any) -> Config:
         raw = {}
     if not isinstance(raw, dict):
         raise ConfigError("設定ファイルのトップレベルはマッピングで指定してください")
-    unknown = set(raw) - {"instance", "backend", "frontend", "db", "log", "apps"}
+    unknown = set(raw) - {"instance", "backend", "frontend", "db", "log", "apps", "health"}
     if unknown:
         raise ConfigError(f"未知のキーがあります: {sorted(unknown)}")
 
@@ -98,6 +104,10 @@ def parse_config(raw: Any) -> Config:
     db = _section(raw.get("db"), "db", DbConfig)
     lg = _section(raw.get("log"), "log", LogConfig)
     ap = _section(raw.get("apps"), "apps", AppsConfig)
+    hl = _section(raw.get("health"), "health", HealthConfig)
+    days = hl.get("retention_days", d.health.retention_days)
+    if isinstance(days, bool) or not isinstance(days, int) or days < 1:
+        raise ConfigError("health.retention_days は 1 以上の整数で指定してください")
     return Config(
         instance=_nonempty_str(raw.get("instance", d.instance), "instance"),
         backend=BackendConfig(port=_port(b.get("port", d.backend.port), "backend.port")),
@@ -105,6 +115,7 @@ def parse_config(raw: Any) -> Config:
         db=DbConfig(path=_nonempty_str(db.get("path", d.db.path), "db.path")),
         log=LogConfig(dir=_nonempty_str(lg.get("dir", d.log.dir), "log.dir")),
         apps=AppsConfig(path=_nonempty_str(ap["path"], "apps.path") if "path" in ap else None),
+        health=HealthConfig(retention_days=days),
     )
 
 

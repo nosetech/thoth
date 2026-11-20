@@ -6,7 +6,7 @@
 
 from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import TypeDecorator
 
@@ -88,3 +88,20 @@ class ServiceOperation(Base):
     message: Mapped[str | None] = mapped_column(Text, nullable=True)
     started_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False)
     finished_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False)
+
+
+class HealthResult(Base):
+    """ヘルスチェックの 1 回分の結果（保持期間を過ぎたものは定期的に削除する）。
+
+    応答本文・コマンド出力は保存しない（message は probe が作る定型文のみ）。
+    """
+
+    __tablename__ = "health_result"
+    __table_args__ = (Index("ix_health_result_service", "app_id", "service_id", "checked_at"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    app_id: Mapped[str] = mapped_column(String, nullable=False)
+    service_id: Mapped[str] = mapped_column(String, nullable=False)
+    ok: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    checked_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False)

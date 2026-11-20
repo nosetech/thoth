@@ -14,7 +14,12 @@ import {
   RotateCw,
   Square,
   TriangleAlert,
+  Unplug,
+  CircleX,
+  History,
 } from "lucide-react";
+import { HealthChip, HealthLine } from "@/components/apps/HealthParts";
+import { HealthSheet, type HealthTarget } from "@/components/apps/HealthSheet";
 import { ConfirmDialog, type ConfirmCfg } from "@/components/apps/ConfirmDialog";
 import { Badge, Spinner, fmtTime, type Tone } from "@/components/apps/parts";
 import {
@@ -60,6 +65,7 @@ import {
   type ServiceState,
   type ServiceStatus,
 } from "@/lib/apps";
+import { healthSummary, hkey, type HealthSample, type ServiceHealth } from "@/lib/health";
 
 const POLL_MS = 5000;
 const OPS: Action[] = ["start", "stop", "restart"];
@@ -251,6 +257,12 @@ export function AppsManager() {
   const [cycle, setCycle] = useState(0);
   const [pollErr, setPollErr] = useState(0);
   const [reloading, setReloading] = useState(false);
+  const [health, setHealth] = useState<Record<string, ServiceHealth>>({});
+  const [healthErr, setHealthErr] = useState(false);
+  const [lastHealthAt, setLastHealthAt] = useState<Date | null>(null);
+  const [hTarget, setHTarget] = useState<HealthTarget | null>(null);
+  const [hHist, setHHist] = useState<HealthSample[] | null>(null);
+  const [hHistErr, setHHistErr] = useState(false);
   const mounted = useRef(true);
   const refreshing$ = useRef(false);
   const pendingRefresh = useRef(false);
@@ -294,8 +306,20 @@ export function AppsManager() {
       refreshing$.current = true;
       setRefreshing(true);
       try {
-        const views = await load();
+        // ヘルスの取得失敗は一覧・操作に影響させない（前回の表示を保つ）
+        const healthP = apiFetch<ServiceHealth[]>("/api/service-health").then(
+          (list) => list,
+          () => null,
+        );
+        const [views, hl] = await Promise.all([load(), healthP]);
         if (!mounted.current) return;
+        if (hl) {
+          setHealth(Object.fromEntries(hl.map((h) => [hkey(h.app_id, h.service_id), h])));
+          setHealthErr(false);
+          setLastHealthAt(new Date());
+        } else {
+          setHealthErr(true);
+        }
         setApps(views);
         setLoadError(false);
         setPollErr(0);
@@ -351,6 +375,26 @@ export function AppsManager() {
     const t = setInterval(tick, POLL_MS);
     return () => clearInterval(t);
   }, [paused, screen, doRefresh]);
+
+  // 履歴シートを開いている間は、定期更新に合わせて履歴も取り直す（チラつかないよう前回値を保つ）
+  useEffect(() => {
+    if (!hTarget) return;
+    let alive = true;
+    apiFetch<HealthSample[]>(
+      `/api/service-health/${encodeURIComponent(hTarget.appId)}/${encodeURIComponent(hTarget.serviceId)}/history`,
+      { query: { limit: 200 } },
+    ).then(
+      (r) => {
+        if (!alive) return;
+        setHHist(r);
+        setHHistErr(false);
+      },
+      () => alive && setHHistErr(true),
+    );
+    return () => {
+      alive = false;
+    };
+  }, [hTarget, cycle]);
 
   const setMsg = (id: string, m: Msg | null) => setMsgs((s) => ({ ...s, [id]: m }));
   const states = (v: AppView) => v.statuses.map((s) => s.state);
@@ -737,6 +781,31 @@ export function AppsManager() {
           </div>
         )}
 
+        {healthErr && pollErr === 0 && (
+          <div
+            role="status"
+            className="border-primary/30 flex flex-wrap items-center gap-3 border border-dashed p-4"
+          >
+            <Unplug size={20} aria-hidden="true" />
+            <div className="min-w-0 flex-1">
+              <strong>ヘルスチェック状態を取得できません</strong>
+              <p className="text-foreground/70 text-xs">
+                サービスの起動・停止などの操作は引き続き利用できます(ヘルス表示は{" "}
+                {fmtTime(lastHealthAt)} 時点)。
+              </p>
+            </div>
+            <Button
+              type="button"
+              className={BTN}
+              onClick={() => void doRefresh(true)}
+              disabled={refreshing}
+            >
+              {refreshing ? <Spinner /> : <RefreshCw size={14} aria-hidden="true" />}
+              <span className="ms-1.5">再試行</span>
+            </Button>
+          </div>
+        )}
+
         <section className={CARD} aria-labelledby="bulk-t">
           <div className="mb-4 flex items-baseline gap-3">
             <h2 id="bulk-t" className="text-lg font-bold">
@@ -844,6 +913,18 @@ export function AppsManager() {
               onSvcOp={onSvcOp}
               onMode={onMode}
               onDismiss={() => setMsg(v.def.id, null)}
+              health={health}
+              healthErr={healthErr}
+              now={lastUpdated?.getTime() ?? 0}
+              onHistory={(s) => {
+                setHHist(null);
+                setHHistErr(false);
+                setHTarget({
+                  appId: v.def.id,
+                  serviceId: s.id,
+                  label: `${v.def.name} / ${s.name || s.id}`,
+                });
+              }}
             />
           ))}
         </div>
@@ -873,6 +954,15 @@ export function AppsManager() {
         )}
       </Toaster>
       <ConfirmDialog cfg={confirm} onClose={() => setConfirm(null)} />
+      <HealthSheet
+        target={hTarget}
+        health={hTarget ? health[hkey(hTarget.appId, hTarget.serviceId)] : undefined}
+        history={hHist}
+        historyErr={hHistErr}
+        err={healthErr}
+        now={lastUpdated?.getTime() ?? 0}
+        onClose={() => setHTarget(null)}
+      />
       <ResultSheet open={sheetOpen} result={bulkResult} onClose={() => setSheetOpen(false)} />
     </div>
   );
@@ -895,6 +985,10 @@ function AppCard({
   onSvcOp,
   onMode,
   onDismiss,
+  health,
+  healthErr,
+  now,
+  onHistory,
 }: {
   v: AppView;
   st: AppStatus;
@@ -906,6 +1000,10 @@ function AppCard({
   onSvcOp: (v: AppView, s: ServiceDef, op: Action) => void;
   onMode: (v: AppView, m: string) => void;
   onDismiss: () => void;
+  health: Record<string, ServiceHealth>;
+  healthErr: boolean;
+  now: number;
+  onHistory: (s: ServiceDef) => void;
 }) {
   const { def, statuses } = v;
   const stateOf = (id: string): ServiceStatus | undefined =>
@@ -936,6 +1034,12 @@ function AppCard({
         ? "起動中のサービスがあるため切替不可 — 停止してから切り替えてください"
         : null;
   const ordered = topo(def.services);
+  const hs = healthSummary(
+    def.id,
+    running.map((r) => r.service_id),
+    health,
+  );
+  const nameById = (id: string) => def.services.find((x) => x.id === id);
 
   return (
     <article
@@ -950,6 +1054,7 @@ function AppCard({
             {def.name}
           </h3>
           <AppBadge status={st} op={busyOp} />
+          <HealthChip sum={hs} err={healthErr} />
         </div>
         {def.description && <p className="text-foreground/70 mt-1">{def.description}</p>}
         <div className="text-foreground/60 mt-2 flex gap-4 text-xs">
@@ -962,6 +1067,40 @@ function AppCard({
           <span>{def.services.length} サービス</span>
         </div>
       </header>
+      {!healthErr && hs.unhealthy.length > 0 && (
+        <div
+          className="border-destructive/60 bg-destructive/10 mb-4 flex items-start gap-3 border p-3"
+          role="status"
+        >
+          <CircleX size={18} className="mt-0.5 text-rose-300" aria-hidden="true" />
+          <div className="min-w-0 flex-1 text-sm">
+            <strong className="text-rose-300">ヘルスチェック異常</strong>
+            <ul className="mt-1 flex flex-col gap-1">
+              {hs.unhealthy.map((h) => {
+                const sv = nameById(h.service_id);
+                return (
+                  <li key={h.service_id} className="flex flex-wrap items-center gap-2 text-xs">
+                    <span className="min-w-0 flex-1 break-words">
+                      <b>{sv?.name || h.service_id}</b>: {h.message}
+                    </span>
+                    {sv && (
+                      <Button
+                        type="button"
+                        className="min-h-11 px-3 py-1 text-xs"
+                        onClick={() => onHistory(sv)}
+                        aria-label={`${sv.name || sv.id} のヘルスチェック履歴を開く`}
+                      >
+                        <History size={14} aria-hidden="true" />
+                        <span className="ms-1.5">履歴</span>
+                      </Button>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        </div>
+      )}
       <div className="flex flex-wrap items-start justify-between gap-4">
         <ModeSelector view={v} lockReason={lockReason} onChange={(m) => onMode(v, m)} />
         <div className="flex flex-wrap gap-3" role="group" aria-label={`${def.name} の操作`}>
@@ -1054,6 +1193,15 @@ function AppCard({
                   <Ban size={14} aria-hidden="true" />
                   <span>操作できません: kind {s.kind} は thoth から操作できません</span>
                 </p>
+              )}
+              {!unsup && (
+                <HealthLine
+                  name={s.name || s.id}
+                  h={health[hkey(def.id, s.id)]}
+                  err={healthErr}
+                  now={now}
+                  onHistory={() => onHistory(s)}
+                />
               )}
               <div className="flex gap-2" role="group" aria-label={`${s.name || s.id} の操作`}>
                 {OPS.map((op) => (
