@@ -63,6 +63,7 @@ backend 8900 / frontend 3900。既存アプリ（deep-tracker 8700/3700、focara
 | `pid_file` | path | | あれば PID の正とする。無ければ thoth が起動したプロセスの PID を DB に保持 |
 | `pid_match` | str | | `pid_file` 指定時のみ。PID ファイルの PID を thoth が初めて見るとき、コマンドラインにこの文字列を含まなければ別プロセスとみなす（古い PID ファイル対策） |
 | `healthcheck` | Healthcheck | | 省略時は `port` があれば `tcp`、無ければ PID 生存のみ |
+| `auto_restart` | AutoRestart | | 指定したサービスだけ自動再起動する（省略時は無効）。「自動再起動（#13）」参照 |
 
 **PID の扱い**: thoth 再起動後に保持済み PID を使う際は、PID の再利用による誤 kill を防ぐため、プロセスの起動時刻を記録値と照合し、不一致なら「停止済み」とみなして kill しない（コマンドラインは `exec` で変わり得るため、記録・照合に使わない。他プロセスの引数に含まれる秘密を DB に残さないためでもある）。`pid_file` 指定時も同様に照合する。詳細は「プロセス制御（#5）」。
 
@@ -180,6 +181,25 @@ apps:
 
 ## 将来拡張
 - `kind: cloud`: スキーマ上は予約。想定は `provider` / `endpoint` / `healthcheck`（http）/ 認証情報参照（env 名のみ）で、起動/停止は対象外（監視のみ）。実装時に別 issue で設計する。
+
+### 自動再起動（#13）
+`auto_restart` を指定した process サービスは、異常時に thoth が自動で再起動する（実装: `thoth/process/supervisor.py`。lifespan の常駐ループ。1 秒ごとに巡回）。
+
+| キー | 既定 | 説明 |
+|---|---|---|
+| `max_retries` | 5 | 連続して再起動を試みる上限回数 |
+| `backoff_initial` | 5 | 1 回目と 2 回目の試行の間隔（秒）。以降は `backoff_factor` 倍で延ばす |
+| `backoff_factor` | 2.0 | 間隔の倍率（1 以上） |
+| `backoff_max` | 300 | 間隔の上限（秒。`backoff_initial` 以上） |
+| `reset_after` | 300 | 最後の試行からこの秒数、正常が続けば試行回数を 0 に戻す |
+| `on_unhealthy` | true | プロセスは生きていてもヘルスチェックが `unhealthy` なら再起動する |
+
+- **対象**: 「稼働させたい」サービス = thoth の API（個別・アプリ単位・一括）で起動／再起動に成功し、その後に停止を要求していないもの。`stop` を要求した時点で対象から外れる（停止に失敗しても外れたまま）。この機能の導入前から稼働中のものは、最初の巡回で稼働させたいものとして扱う。thoth の外（スクリプト等）で止めたものは区別できず、再起動される。状態は `service_supervision` に保存し、thoth 再起動後も引き継ぐ。
+- **異常の判定**: プロセスが無い、または `on_unhealthy` かつヘルス状態が `unhealthy`（起動直後の猶予・`failure_threshold` は #12 のとおり）。生きていて異常なら停止してから起動する。
+- **回数・バックオフ・フラッピング**: 異常を見つけたら即 1 回目を試行し、その後は `backoff_initial` から倍々（`backoff_max` まで）の間隔を空けて試行する。`max_retries` 回試行しても次の試行の時点でまだ異常なら**再起動を止める**（`gave_up`）。短時間に異常を繰り返すもの（フラッピング）はこの上限で止まる。`reset_after` の間正常が続けば回数は 0 に戻る。上限到達後は何もしない（手動で起動／停止すると状態がリセットされる）。
+- **記録**: 試行は `service_operation` に `action = auto_restart` で残す（上限到達も `failed` で 1 件）。最新の状況メッセージは `service_supervision.last_message`。
+- `GET /api/auto-restart`: `auto_restart` を指定したサービスごとの `state`（`watching` / `retrying` / `gave_up` / `idle`）、`attempts` / `max_retries`、`last_attempt_at` / `next_attempt_at`、`message`。上限到達（`gave_up`）の UI 表示に使う。
+- UI への表示（上限到達のバッジ等）は、デザインが未作成のため別途対応する。
 
 # プロセス制御（#5）
 

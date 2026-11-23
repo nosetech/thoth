@@ -54,6 +54,23 @@ class Healthcheck(_Strict):
         return self
 
 
+class AutoRestart(_Strict):
+    """異常時の自動再起動（指定したサービスのみ。設計: architecture.md「自動再起動（#13）」）。"""
+
+    max_retries: int = Field(5, ge=1)  # 連続して再起動を試みる上限回数
+    backoff_initial: int = Field(5, gt=0)  # 1 回目と 2 回目の試行の間隔（秒）
+    backoff_factor: float = Field(2.0, ge=1)  # 以降は間隔をこの倍率で延ばす
+    backoff_max: int = Field(300, gt=0)  # 間隔の上限（秒）
+    reset_after: int = Field(300, gt=0)  # 最後の試行からこの秒数、正常なら回数を 0 に戻す
+    on_unhealthy: bool = True  # プロセスは生きていてもヘルスチェックが「異常」なら再起動する
+
+    @model_validator(mode="after")
+    def _check(self) -> AutoRestart:
+        if self.backoff_initial > self.backoff_max:
+            raise ValueError("backoff_initial は backoff_max 以下にしてください")
+        return self
+
+
 class _ServiceBase(_Strict):
     id: str
     name: str | None = None
@@ -82,6 +99,7 @@ class ProcessService(_ServiceBase):
         None, min_length=1
     )  # pid_file の PID のコマンドラインに含まれる文字列
     healthcheck: Healthcheck | None = None
+    auto_restart: AutoRestart | None = None  # 省略時は自動再起動しない
 
     @model_validator(mode="after")
     def _check_pid_match(self) -> ProcessService:

@@ -15,6 +15,7 @@ apps:
         workdir: backend
         port: 8000
         healthcheck: { type: http, url: "http://127.0.0.1:8000/api/health" }
+        auto_restart: { max_retries: 5 }   # 異常時に自動再起動（省略時は無効）
       # 起動スクリプト型: start が対象をバックグラウンド起動して終了する。PID は pid_file（workdir 基準）が正
       - id: scripted
         kind: process
