@@ -29,12 +29,7 @@ import {
 } from "@/components/apps/RestartParts";
 import { ConfirmDialog, type ConfirmCfg } from "@/components/apps/ConfirmDialog";
 import { Badge, Spinner, fmtTime, type Tone } from "@/components/apps/parts";
-import {
-  OVERALL_LABEL,
-  ResultBadge,
-  ResultSheet,
-  type BulkView,
-} from "@/components/apps/ResultSheet";
+import { ResultBadge, ResultSheet, type BulkView } from "@/components/apps/ResultSheet";
 import { useShellStatus } from "@/components/shell/ShellStatus";
 import { EmptyState, ErrorState, LoadingState } from "@/components/states";
 import { Button } from "@/components/ui/button";
@@ -604,13 +599,6 @@ export function AppsManager() {
       };
       setBulkResult(view);
       setSheetOpen(true);
-      const oks = view.apps.filter((a) => a.result === "ok").length;
-      const errs = view.apps.filter((a) => a.result === "error").length;
-      toast(
-        r.status === "ok" ? "ok" : "error",
-        `一括${OP[op]}: ${OVERALL_LABEL[r.status]} (${r.status})`,
-        `${oks} アプリ成功 / ${errs} アプリ失敗`,
-      );
     } catch (e) {
       toast("error", `一括${OP[op]}に失敗`, errorMessage(e));
     } finally {
