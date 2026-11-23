@@ -29,11 +29,7 @@ import {
 } from "@/components/apps/RestartParts";
 import { ConfirmDialog, type ConfirmCfg } from "@/components/apps/ConfirmDialog";
 import { Badge, Spinner, fmtTime, type Tone } from "@/components/apps/parts";
-import {
-  ResultBadge,
-  ResultSheet,
-  type BulkView,
-} from "@/components/apps/ResultSheet";
+import { ResultBadge, ResultSheet, type BulkView } from "@/components/apps/ResultSheet";
 import { useShellStatus } from "@/components/shell/ShellStatus";
 import { EmptyState, ErrorState, LoadingState } from "@/components/states";
 import { Button } from "@/components/ui/button";
