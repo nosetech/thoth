@@ -272,3 +272,13 @@ apps:
 - cosmic-ui に該当部品が無いもの（状態バッジ・スピナー、`components/apps/parts.tsx`）は、Tailwind のユーティリティによる最小限の小部品とした。
 - 共通シェル（`AppShell`）: ロゴ・ナビ・エラー件数バッジ・更新コントロール（最終更新・更新・一時停止）・バックエンド接続表示・サイドバー折りたたみ（`localStorage` の `thoth.sidebar`）・モバイルヘッダー・ドロワー（`Sheet`）。ページは `ShellStatusProvider`（`components/shell/ShellStatus.tsx`）経由で更新状態と操作をシェルへ公開する。
 - デザインとの差分（操作イメージ上の未実装）: 更新の進行バーは未実装（cosmic-ui に該当部品が無いため）。アプリ URL（API に無い）と一括操作のアプリごとの進捗バー（同期 API のため）は未実装。ダッシュボード/ログ/リソース画面の中身はデザイン対象外（別 issue）。
+
+# 定期ジョブ（#14）
+
+`kind: scheduled`（launchd 定期ジョブ。deep-tracker の fetch / summary / backup など）は常駐しないため、ポート・PID では判定せず、最終実行と成否・実行間隔で判定する（実装: `backend/thoth/scheduled/status.py`、`backend/thoth/api/scheduled.py`）。thoth からの起動・停止は行わず、参照のみ（`launchctl print`。副作用なし）。
+
+- 成否・実行中: `launchctl print <launchd_domain>/<launchd_label>` の `state` / `last exit code`（既定ドメイン `gui/<uid>`）。
+- 最終実行時刻: `log_paths`（相対パスはサービスの `workdir` 基準）のうち最新の更新時刻。launchd は最終実行時刻を直接返さないための近似で、`log_paths` 未設定なら「不明」。
+- 状態（`state`）: `running`（実行中）/ `failed`（終了コード非 0。異常）/ `overdue`（`expected_interval` 指定時、最終実行がその 1.5 倍を超えて古い。異常）/ `never`（実行された形跡なし）/ `unloaded`（launchd に未登録）/ `unknown`（`launchctl` を実行できない）/ `ok`。優先順は running > failed > overdue > never > ok。
+- `GET /api/scheduled`: 全 scheduled サービスの `app_id` / `service_id` / `state` / `message`（定型文）/ `schedule` / `expected_interval` / `last_run_at` / `exit_code`。ログの内容・`launchctl` の出力全文は返さない。
+- UI: 定期ジョブの行（種別・状態バッジ・スケジュール・最終実行・メッセージ）、失敗・遅延のときアプリカードに警告。一覧の定期更新（5 秒）と同じ周期で取得し、取得に失敗しても操作は継続でき、この表示のみ「取得できません」にする。デザインは `docs/design-prompt-ui-scheduled.md` の指示で更新したもの。

@@ -19,6 +19,7 @@ import {
   History,
 } from "lucide-react";
 import { HealthChip, HealthLine } from "@/components/apps/HealthParts";
+import { JobAlert, JobBadge, JobKind, JobLine, JobNote } from "@/components/apps/ScheduledParts";
 import { HealthSheet, type HealthTarget } from "@/components/apps/HealthSheet";
 import {
   RestartBadge,
@@ -67,6 +68,7 @@ import {
   type ServiceState,
   type ServiceStatus,
 } from "@/lib/apps";
+import { abnormalJobs, type ScheduledJob } from "@/lib/scheduled";
 import { ago, healthSummary, hkey, type HealthSample, type ServiceHealth } from "@/lib/health";
 import { restartSummary, type ServiceRestart } from "@/lib/restart";
 
@@ -266,6 +268,8 @@ export function AppsManager() {
   const [health, setHealth] = useState<Record<string, ServiceHealth>>({});
   const [healthErr, setHealthErr] = useState(false);
   const [lastHealthAt, setLastHealthAt] = useState<Date | null>(null);
+  const [jobs, setJobs] = useState<Record<string, ScheduledJob>>({});
+  const [jobsErr, setJobsErr] = useState(false);
   const [restart, setRestart] = useState<Record<string, ServiceRestart>>({});
   const [restartErr, setRestartErr] = useState(false);
   const [lastRestartAt, setLastRestartAt] = useState<Date | null>(null);
@@ -325,7 +329,12 @@ export function AppsManager() {
           (list) => list,
           () => null,
         );
-        const [views, hl, rl] = await Promise.all([load(), healthP, restartP]);
+        // 定期ジョブの取得失敗も同様（一覧・操作に影響させない）
+        const jobsP = apiFetch<ScheduledJob[]>("/api/scheduled").then(
+          (list) => list,
+          () => null,
+        );
+        const [views, hl, rl, jl] = await Promise.all([load(), healthP, restartP, jobsP]);
         if (!mounted.current) return;
         if (hl) {
           setHealth(Object.fromEntries(hl.map((h) => [hkey(h.app_id, h.service_id), h])));
@@ -333,6 +342,12 @@ export function AppsManager() {
           setLastHealthAt(new Date());
         } else {
           setHealthErr(true);
+        }
+        if (jl) {
+          setJobs(Object.fromEntries(jl.map((j) => [hkey(j.app_id, j.service_id), j])));
+          setJobsErr(false);
+        } else {
+          setJobsErr(true);
         }
         if (rl) {
           setRestart(Object.fromEntries(rl.map((r) => [hkey(r.app_id, r.service_id), r])));
@@ -963,6 +978,8 @@ export function AppsManager() {
               healthErr={healthErr}
               restart={restart}
               restartErr={restartErr}
+              jobs={jobs}
+              jobsErr={jobsErr}
               now={lastUpdated?.getTime() ?? 0}
               onHistory={(s) => {
                 setHHist(null);
@@ -1037,6 +1054,8 @@ function AppCard({
   healthErr,
   restart,
   restartErr,
+  jobs,
+  jobsErr,
   now,
   onHistory,
 }: {
@@ -1054,6 +1073,8 @@ function AppCard({
   healthErr: boolean;
   restart: Record<string, ServiceRestart>;
   restartErr: boolean;
+  jobs: Record<string, ScheduledJob>;
+  jobsErr: boolean;
   now: number;
   onHistory: (s: ServiceDef) => void;
 }) {
@@ -1097,6 +1118,12 @@ function AppCard({
     restart,
   );
   const nameById = (id: string) => def.services.find((x) => x.id === id);
+  const badJobs = jobsErr
+    ? []
+    : abnormalJobs(def.id, jobs).flatMap((job) => {
+        const sv = nameById(job.service_id);
+        return sv ? [{ name: sv.name || sv.id, job }] : [];
+      });
 
   return (
     <article
@@ -1175,6 +1202,7 @@ function AppCard({
           </div>
         </div>
       )}
+      <JobAlert items={badJobs} now={now} />
       {!healthErr && hs.unhealthy.length > 0 && (
         <div
           className="border-destructive/60 bg-destructive/10 mb-4 flex items-start gap-3 border p-3"
@@ -1254,7 +1282,8 @@ function AppCard({
         {ordered.map((s) => {
           const ss = stateOf(s.id);
           const state: ServiceState = ss?.state ?? "unsupported";
-          const unsup = state === "unsupported";
+          const isJob = s.kind === "scheduled";
+          const unsup = state === "unsupported" && !isJob;
           const busy = svcBusy[`${def.id}/${s.id}`];
           const sCan = {
             start: !lock && state === "stopped",
@@ -1269,6 +1298,24 @@ function AppCard({
                 : op === "start"
                   ? "既に実行中です"
                   : "サービスが停止中です";
+          if (isJob) {
+            const job = jobs[hkey(def.id, s.id)];
+            return (
+              <li
+                key={s.id}
+                className="border-primary/20 flex flex-wrap items-center gap-x-6 gap-y-2 border p-3"
+              >
+                <div className="flex min-w-40 flex-1 flex-wrap items-center gap-2">
+                  <span className="font-bold">{s.name || s.id}</span>
+                  <JobKind />
+                  <span className="text-foreground/60 text-xs">launchd</span>
+                </div>
+                <JobBadge state={job?.state} err={jobsErr} />
+                <JobLine job={job} err={jobsErr} now={now} />
+                <JobNote />
+              </li>
+            );
+          }
           return (
             <li
               key={s.id}
