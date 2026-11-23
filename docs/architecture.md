@@ -199,7 +199,7 @@ apps:
 - **回数・バックオフ・フラッピング**: 異常を見つけたら即 1 回目を試行し、その後は `backoff_initial` から倍々（`backoff_max` まで）の間隔を空けて試行する。`max_retries` 回試行しても次の試行の時点でまだ異常なら**再起動を止める**（`gave_up`）。短時間に異常を繰り返すもの（フラッピング）はこの上限で止まる。`reset_after` の間正常が続けば回数は 0 に戻る。上限到達後は何もしない（手動で起動／停止すると状態がリセットされる）。
 - **記録**: 試行は `service_operation` に `action = auto_restart` で残す（上限到達も `failed` で 1 件）。最新の状況メッセージは `service_supervision.last_message`。
 - `GET /api/auto-restart`: `auto_restart` を指定したサービスごとの `state`（`watching` / `retrying` / `gave_up` / `idle`）、`attempts` / `max_retries`、`last_attempt_at` / `next_attempt_at`、`message`。上限到達（`gave_up`）の UI 表示に使う。
-- UI への表示（上限到達のバッジ等）は、デザインが未作成のため別途対応する。
+- UI: サービス行に状態チップ（監視中・手動停止中）と、試行中・上限到達の行（試行回数・次の試行予定・「起動ボタンへ」）、アプリカードに上限到達の警告枠と見出しバッジ、画面上部に「自動再起動停止 n」。状態の取得は一覧の定期更新（5 秒）と同じ周期で、取得に失敗してもサービス操作は継続でき、この表示のみ「取得できません」にする。デザインは `docs/design-prompt-ui-auto-restart.md` の指示で更新したもの（`index.html` は約156KB）。
 
 # プロセス制御（#5）
 
