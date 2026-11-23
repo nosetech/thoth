@@ -409,10 +409,8 @@ export function AppsManager() {
   usePolling(!paused && screen === "normal", () => void doRefresh(false), POLL_MS);
 
   // ダッシュボードの「APPS で確認」から来たとき、該当のアプリ・サービスへ移動して目立たせる
-  const hashHandled = useRef(false);
   useEffect(() => {
-    if (screen !== "normal" || hashHandled.current) return;
-    hashHandled.current = true;
+    if (screen !== "normal") return;
     const id = hashToElementId(window.location.hash);
     const el = id ? document.getElementById(id) : null;
     if (!el) return;
@@ -421,7 +419,11 @@ export function AppsManager() {
     const flash = ["ring-2", "ring-primary"];
     el.classList.add(...flash);
     const t = setTimeout(() => el.classList.remove(...flash), 2000);
-    return () => clearTimeout(t);
+    // cleanup でも必ず外す（StrictMode の再実行や画面状態の変化で強調が残らないように）
+    return () => {
+      clearTimeout(t);
+      el.classList.remove(...flash);
+    };
   }, [screen]);
 
   // 履歴シートを開いている間は、定期更新に合わせて履歴も取り直す（チラつかないよう前回値を保つ）
