@@ -20,6 +20,13 @@ import {
 } from "lucide-react";
 import { HealthChip, HealthLine } from "@/components/apps/HealthParts";
 import { HealthSheet, type HealthTarget } from "@/components/apps/HealthSheet";
+import {
+  RestartBadge,
+  RestartChip,
+  RestartLine,
+  focusStartButton,
+  startButtonId,
+} from "@/components/apps/RestartParts";
 import { ConfirmDialog, type ConfirmCfg } from "@/components/apps/ConfirmDialog";
 import { Badge, Spinner, fmtTime, type Tone } from "@/components/apps/parts";
 import {
@@ -65,7 +72,8 @@ import {
   type ServiceState,
   type ServiceStatus,
 } from "@/lib/apps";
-import { healthSummary, hkey, type HealthSample, type ServiceHealth } from "@/lib/health";
+import { ago, healthSummary, hkey, type HealthSample, type ServiceHealth } from "@/lib/health";
+import { restartSummary, type ServiceRestart } from "@/lib/restart";
 
 const POLL_MS = 5000;
 const OPS: Action[] = ["start", "stop", "restart"];
@@ -145,6 +153,7 @@ function OpButton({
   onClick,
   label,
   reason,
+  id,
 }: {
   op: Action;
   disabled: boolean;
@@ -152,6 +161,7 @@ function OpButton({
   onClick: () => void;
   label: string;
   reason: string | null;
+  id?: string;
 }) {
   const Icon = OpIcon[op];
   return (
@@ -159,6 +169,7 @@ function OpButton({
       type="button"
       variant={OP_VARIANT[op]}
       className={BTN}
+      id={id}
       disabled={disabled}
       onClick={onClick}
       aria-label={label}
@@ -260,6 +271,9 @@ export function AppsManager() {
   const [health, setHealth] = useState<Record<string, ServiceHealth>>({});
   const [healthErr, setHealthErr] = useState(false);
   const [lastHealthAt, setLastHealthAt] = useState<Date | null>(null);
+  const [restart, setRestart] = useState<Record<string, ServiceRestart>>({});
+  const [restartErr, setRestartErr] = useState(false);
+  const [lastRestartAt, setLastRestartAt] = useState<Date | null>(null);
   const [hTarget, setHTarget] = useState<HealthTarget | null>(null);
   const [hHist, setHHist] = useState<HealthSample[] | null>(null);
   const [hHistErr, setHHistErr] = useState(false);
@@ -311,7 +325,12 @@ export function AppsManager() {
           (list) => list,
           () => null,
         );
-        const [views, hl] = await Promise.all([load(), healthP]);
+        // 自動再起動の取得失敗も同様（一覧・操作に影響させない）
+        const restartP = apiFetch<ServiceRestart[]>("/api/auto-restart").then(
+          (list) => list,
+          () => null,
+        );
+        const [views, hl, rl] = await Promise.all([load(), healthP, restartP]);
         if (!mounted.current) return;
         if (hl) {
           setHealth(Object.fromEntries(hl.map((h) => [hkey(h.app_id, h.service_id), h])));
@@ -319,6 +338,13 @@ export function AppsManager() {
           setLastHealthAt(new Date());
         } else {
           setHealthErr(true);
+        }
+        if (rl) {
+          setRestart(Object.fromEntries(rl.map((r) => [hkey(r.app_id, r.service_id), r])));
+          setRestartErr(false);
+          setLastRestartAt(new Date());
+        } else {
+          setRestartErr(true);
         }
         setApps(views);
         setLoadError(false);
@@ -662,6 +688,10 @@ export function AppsManager() {
     return m;
   }, {});
 
+  const gaveUpTotal = restartErr
+    ? 0
+    : Object.values(restart).filter((r) => r.state === "gave_up").length;
+
   // 共通シェル（サイドバー・モバイルヘッダー）へ更新状態を公開する
   const { setStatus } = useShellStatus();
   const errorCount = counts.error ?? 0;
@@ -703,6 +733,9 @@ export function AppsManager() {
             {apps.length} アプリ ・ 実行中 {counts.running ?? 0} ・ 一部起動 {counts.partial ?? 0}{" "}
             ・ 停止中 {counts.stopped ?? 0}
             {counts.error ? <span className="text-rose-300"> ・ エラー {counts.error}</span> : null}
+            {gaveUpTotal > 0 ? (
+              <span className="text-rose-300"> ・ 自動再起動停止 {gaveUpTotal}</span>
+            ) : null}
           </p>
         )}
       </div>
@@ -792,6 +825,31 @@ export function AppsManager() {
               <p className="text-foreground/70 text-xs">
                 サービスの起動・停止などの操作は引き続き利用できます(ヘルス表示は{" "}
                 {fmtTime(lastHealthAt)} 時点)。
+              </p>
+            </div>
+            <Button
+              type="button"
+              className={BTN}
+              onClick={() => void doRefresh(true)}
+              disabled={refreshing}
+            >
+              {refreshing ? <Spinner /> : <RefreshCw size={14} aria-hidden="true" />}
+              <span className="ms-1.5">再試行</span>
+            </Button>
+          </div>
+        )}
+
+        {restartErr && pollErr === 0 && (
+          <div
+            role="status"
+            className="border-primary/30 flex flex-wrap items-center gap-3 border border-dashed p-4"
+          >
+            <Unplug size={20} aria-hidden="true" />
+            <div className="min-w-0 flex-1">
+              <strong>自動再起動の状態を取得できません</strong>
+              <p className="text-foreground/70 text-xs">
+                サービスの起動・停止などの操作は引き続き利用できます(自動再起動の表示は{" "}
+                {fmtTime(lastRestartAt)} 時点)。
               </p>
             </div>
             <Button
@@ -915,6 +973,8 @@ export function AppsManager() {
               onDismiss={() => setMsg(v.def.id, null)}
               health={health}
               healthErr={healthErr}
+              restart={restart}
+              restartErr={restartErr}
               now={lastUpdated?.getTime() ?? 0}
               onHistory={(s) => {
                 setHHist(null);
@@ -987,6 +1047,8 @@ function AppCard({
   onDismiss,
   health,
   healthErr,
+  restart,
+  restartErr,
   now,
   onHistory,
 }: {
@@ -1002,6 +1064,8 @@ function AppCard({
   onDismiss: () => void;
   health: Record<string, ServiceHealth>;
   healthErr: boolean;
+  restart: Record<string, ServiceRestart>;
+  restartErr: boolean;
   now: number;
   onHistory: (s: ServiceDef) => void;
 }) {
@@ -1039,6 +1103,11 @@ function AppCard({
     running.map((r) => r.service_id),
     health,
   );
+  const rs = restartSummary(
+    def.id,
+    def.services.map((x) => x.id),
+    restart,
+  );
   const nameById = (id: string) => def.services.find((x) => x.id === id);
 
   return (
@@ -1055,6 +1124,7 @@ function AppCard({
           </h3>
           <AppBadge status={st} op={busyOp} />
           <HealthChip sum={hs} err={healthErr} />
+          <RestartBadge gaveUp={rs.gaveUp.length} retrying={rs.retrying.length} err={restartErr} />
         </div>
         {def.description && <p className="text-foreground/70 mt-1">{def.description}</p>}
         <div className="text-foreground/60 mt-2 flex gap-4 text-xs">
@@ -1067,6 +1137,56 @@ function AppCard({
           <span>{def.services.length} サービス</span>
         </div>
       </header>
+      {!restartErr && rs.gaveUp.length > 0 && (
+        <div
+          className="border-destructive/60 bg-destructive/10 mb-4 flex items-start gap-3 border p-3"
+          role="status"
+        >
+          <TriangleAlert size={18} className="mt-0.5 text-rose-300" aria-hidden="true" />
+          <div className="min-w-0 flex-1 text-sm">
+            <strong className="text-rose-300">
+              自動再起動を停止しました — 原因を確認して手動で起動してください
+            </strong>
+            <ul className="mt-1 flex flex-col gap-1">
+              {rs.gaveUp.map((r) => {
+                const sv = nameById(r.service_id);
+                if (!sv) return null;
+                const name = sv.name || sv.id;
+                const canStart = !lock && stateOf(sv.id)?.state === "stopped";
+                return (
+                  <li key={r.service_id} className="flex flex-wrap items-center gap-2 text-xs">
+                    <span className="min-w-0 flex-1 break-words">
+                      <b>{name}</b>: 上限 {r.max_retries} 回の再起動で復旧しませんでした(最終試行{" "}
+                      {r.last_attempt_at ? ago(r.last_attempt_at, now) : "—"}
+                      )。手動で起動すると、上限到達の状態は解除されます。
+                    </span>
+                    <Button
+                      type="button"
+                      className="min-h-11 px-3 py-1 text-xs"
+                      onClick={() => onHistory(sv)}
+                      aria-label={`${name} のヘルスチェック履歴を開く`}
+                    >
+                      <History size={14} aria-hidden="true" />
+                      <span className="ms-1.5">履歴</span>
+                    </Button>
+                    <Button
+                      type="button"
+                      className="min-h-11 px-3 py-1 text-xs"
+                      disabled={!canStart}
+                      onClick={() => onSvcOp(v, sv, "start")}
+                      aria-label={`${def.name} / ${name} を起動`}
+                      title={canStart ? undefined : "操作中のため実行できません"}
+                    >
+                      <Play size={14} aria-hidden="true" />
+                      <span className="ms-1.5">{name} を起動</span>
+                    </Button>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        </div>
+      )}
       {!healthErr && hs.unhealthy.length > 0 && (
         <div
           className="border-destructive/60 bg-destructive/10 mb-4 flex items-start gap-3 border p-3"
@@ -1168,7 +1288,8 @@ function AppCard({
             >
               <div className="min-w-40 flex-1">
                 <span className="font-bold">{s.name || s.id}</span>{" "}
-                <span className="text-foreground/60 text-xs">{s.kind}</span>
+                <span className="text-foreground/60 text-xs">{s.kind}</span>{" "}
+                <RestartChip r={restart[hkey(def.id, s.id)]} err={restartErr} />
               </div>
               <SvcBadge state={state} busy={busy ?? (ss?.busy as Action | undefined)} />
               <div className="text-foreground/70 flex flex-wrap gap-x-4 text-xs">
@@ -1203,6 +1324,14 @@ function AppCard({
                   onHistory={() => onHistory(s)}
                 />
               )}
+              {!unsup && (
+                <RestartLine
+                  r={restart[hkey(def.id, s.id)]}
+                  err={restartErr}
+                  now={now}
+                  onStartFocus={() => focusStartButton(def.id, s.id)}
+                />
+              )}
               <div className="flex gap-2" role="group" aria-label={`${s.name || s.id} の操作`}>
                 {OPS.map((op) => (
                   <OpButton
@@ -1213,6 +1342,7 @@ function AppCard({
                     reason={sCan[op] ? null : reason(op)}
                     onClick={() => onSvcOp(v, s, op)}
                     label={`${def.name} / ${s.name || s.id} を${OP[op]}`}
+                    id={op === "start" ? startButtonId(def.id, s.id) : undefined}
                   />
                 ))}
               </div>

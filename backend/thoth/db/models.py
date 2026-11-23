@@ -105,3 +105,25 @@ class HealthResult(Base):
     ok: Mapped[bool] = mapped_column(Boolean, nullable=False)
     message: Mapped[str | None] = mapped_column(Text, nullable=True)
     checked_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False)
+
+
+class ServiceSupervision(Base):
+    """自動再起動のための状態（「稼働させたい」意思・再起動の試行回数・上限到達）。
+
+    稼働させたい（desired）のは、thoth の API で起動に成功してから、停止を要求するまで。
+    手動で停止したサービスは desired=False となり、自動再起動の対象にならない。
+    """
+
+    __tablename__ = "service_supervision"
+
+    app_id: Mapped[str] = mapped_column(String, primary_key=True)
+    service_id: Mapped[str] = mapped_column(String, primary_key=True)
+    desired: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    gave_up: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    last_attempt_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
+    next_attempt_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)
+    last_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        UtcDateTime, nullable=False, default=lambda: datetime.now(UTC)
+    )

@@ -25,7 +25,7 @@ from sqlalchemy import Engine
 from sqlalchemy.orm import Session
 
 from thoth.apps.schema import App, ProcessService, Service
-from thoth.db.models import AppState, ServiceOperation, ServiceProcess
+from thoth.db.models import AppState, ServiceOperation, ServiceProcess, ServiceSupervision
 from thoth.process.env import ALLOWED_THOTH_VARS, ProcessConfigError, build_env, resolve_argv
 from thoth.process.ps import ProcInfo, process_info
 
@@ -166,27 +166,51 @@ class ProcessManager:
 
     def start(self, app: App, svc: Service) -> str | None:
         proc = self._require_process(svc)
-        return self._operate(app, proc, "start", lambda: self._do_start(app, proc))
+
+        def run() -> str | None:
+            msg = self._do_start(app, proc)
+            self.set_desired((app.id, proc.id), True)
+            return msg
+
+        return self._operate(app, proc, "start", run)
 
     def stop(self, app: App, svc: Service) -> str | None:
         proc = self._require_process(svc)
-        return self._operate(app, proc, "stop", lambda: self._do_stop(app, proc))
+
+        def run() -> str | None:
+            # 停止の意思を先に記録する（停止に失敗しても、自動再起動で起動し直さない）
+            self.set_desired((app.id, proc.id), False)
+            return self._do_stop(app, proc)
+
+        return self._operate(app, proc, "stop", run)
 
     def restart(self, app: App, svc: Service) -> str | None:
         proc = self._require_process(svc)
 
         def run() -> str | None:
-            notes: list[str] = []
-            port_wait = 0.0
-            if self._inspect(app, proc).running:
-                if msg := self._do_stop(app, proc):
-                    notes.append(msg)
-                port_wait = 5.0
-            if msg := self._do_start(app, proc, port_wait=port_wait):
-                notes.append(msg)
-            return " / ".join(notes) or None
+            msg = self._restart_body(app, proc)
+            self.set_desired((app.id, proc.id), True)
+            return msg
 
         return self._operate(app, proc, "restart", run)
+
+    def auto_restart(self, app: App, svc: ProcessService) -> str | None:
+        """自動再起動（#13）。停止していれば起動、生きたままなら停止してから起動する。
+
+        手動の操作と違い、試行回数などの状態はリセットしない。履歴の action は ``auto_restart``。
+        """
+        return self._operate(app, svc, "auto_restart", lambda: self._restart_body(app, svc))
+
+    def _restart_body(self, app: App, proc: ProcessService) -> str | None:
+        notes: list[str] = []
+        port_wait = 0.0
+        if self._inspect(app, proc).running:
+            if msg := self._do_stop(app, proc):
+                notes.append(msg)
+            port_wait = 5.0
+        if msg := self._do_start(app, proc, port_wait=port_wait):
+            notes.append(msg)
+        return " / ".join(notes) or None
 
     def start_app(self, app: App) -> list[ServiceResult]:
         results: list[ServiceResult] = []
@@ -575,6 +599,24 @@ class ProcessManager:
 
     # ---- DB ----------------------------------------------------------------------------
 
+    def set_desired(self, key: tuple[str, str], desired: bool) -> None:
+        """手動の起動・停止の結果を記録する。自動再起動の試行状態はリセットする。"""
+        with Session(self._engine) as s:
+            s.merge(
+                ServiceSupervision(
+                    app_id=key[0],
+                    service_id=key[1],
+                    desired=desired,
+                    attempts=0,
+                    gave_up=False,
+                    last_attempt_at=None,
+                    next_attempt_at=None,
+                    last_message=None,
+                    updated_at=datetime.now(UTC),
+                )
+            )
+            s.commit()
+
     def _mode(self, app_id: str) -> str:
         with Session(self._engine) as s:
             row = s.get(AppState, app_id)
@@ -604,6 +646,12 @@ class ProcessManager:
             if row is not None:
                 s.delete(row)
                 s.commit()
+
+    def record_event(
+        self, key: tuple[str, str], action: str, status: str, message: str, at: datetime
+    ) -> None:
+        """操作を伴わない出来事（自動再起動の停止など）を履歴に残す。"""
+        self._record_op(key, action, status, message, at)
 
     def _record_op(
         self, key: tuple[str, str], action: str, status: str, message: str | None, started: datetime

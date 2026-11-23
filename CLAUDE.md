@@ -14,6 +14,7 @@ thoth: ローカルPCのWebアプリを管理・監視するアプリ。設計�
 - アプリ定義は `config/apps.yaml`（＋同階層 `apps.d/*.yaml`、`config.yaml` の `apps.path` で変更可。明示したパスが無ければエラー）。`GET /api/apps`、`POST /api/config/reload`（変更系は Origin/Referer と `X-Thoth-Request: 1` が必須）。
 - プロセス制御（#5）: `POST /api/apps/{id}[/services/{id}]/(start|stop|restart)`（Origin/Referer と `X-Thoth-Request: 1` 必須）。実行は argv・`shell=False`・`start_new_session` で、`pkill` / ポート検索での kill はしない。動作確認は検証用ポートの thoth で行い、起動・停止を試すアプリは許可されたものだけにする。詳細は `docs/architecture.md`「プロセス制御（#5）」。
 - 一括操作（#7）: `POST /api/bulk/(start|stop|restart)?on_failure=continue|abort`（CSRF 必須）。アプリごとの成否を 200 で返す。詳細は `docs/architecture.md`「一括操作（#7）」。
+- 自動再起動（#13）: サービスの `auto_restart` を指定したものだけ。手動停止したものは再起動しない。`GET /api/auto-restart` で状況を返す。詳細は `docs/architecture.md`「自動再起動（#13）」。
 
 ## 画面デザインの実装ルール
 
@@ -24,7 +25,7 @@ Claude の Artifacts にあるデザインは、**UI の操作イメージ（レ
 - Artifact の値（色・余白など）を `globals.css` や独自 CSS に移植しない。見た目は cosmic-ui のテーマ・コンポーネントに従う。デザインと cosmic-ui の見た目が違っても、Artifact に合わせるために独自 CSS を足さない（どうしても必要なら判断を仰ぐ）。
 - デザイン（アプリ一覧・操作 UI、#8）: https://claude.ai/artifact/3z5oGchGZ3Z6JKKooaVLy5（アーティファクト名「thoth — アプリ管理 UI プロトタイプ」。一覧は https://claude.ai/artifacts）
 - 主なファイル: `index.html`（約107KB。スタイル・コンポーネント・状態ロジックを1ファイルに含む単一ページ。React はコンパイル済みの `React.createElement` 形式。cosmic-ui は使っておらず、独自 CSS で cosmic-ui 風にしたモック）。`Artifact` の `list`（`scope: "files"`）で実在を確認し、ファイルが増えた・分割された場合はすべて読む。
-- 元になった指示プロンプトは `docs/design-prompt-ui-apps.md`（ヘルスチェックの状態・履歴表示 #12 は `docs/design-prompt-ui-health.md` で追記。`index.html` は約136KBになった）。デザインと `docs/` や issue の仕様に齟齬がある場合は、実装前にどちらを正とするか確認する。デザインが更新されたら、この節の URL・ファイル一覧も更新する。
+- 元になった指示プロンプトは `docs/design-prompt-ui-apps.md`（ヘルスチェックの状態・履歴表示 #12 は `docs/design-prompt-ui-health.md`、自動再起動の状態表示 #13 は `docs/design-prompt-ui-auto-restart.md` で追記。`index.html` は約156KBになった）。デザインと `docs/` や issue の仕様に齟齬がある場合は、実装前にどちらを正とするか確認する。デザインが更新されたら、この節の URL・ファイル一覧も更新する。
 - デザインのモックは単一 HTML のプロトタイプ。ダミーデータ・デモ用スイッチ（画面状態の切替、失敗の強制）・仮画面（ログ・リソース）は**実装に含めない**。画面構成・状態遷移・文言・操作フローを移植し、データは `/api/*` から取得する。
 - 実装は既存の基盤（`docs/architecture.md`「フロントエンドのテーマとレイアウト（#3）」: Tailwind v4・cosmic-ui・`AppShell`）の上で行う。
 
