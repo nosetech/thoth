@@ -31,7 +31,7 @@ const JOB_META: Record<
 
 export const JOB_LABEL = (s: ScheduledState): string => JOB_META[s].label;
 
-/** 期待間隔の表示（86400 → 24 時間、172800 → 2 日）。 */
+/** 期待間隔の表示（86400 → 1 日、7200 → 2 時間）。 */
 export function fmtInterval(sec: number): string {
   if (sec % 86400 === 0) return `${sec / 86400} 日`;
   if (sec % 3600 === 0) return `${sec / 3600} 時間`;

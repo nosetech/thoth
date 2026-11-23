@@ -279,6 +279,6 @@ apps:
 
 - 成否・実行中: `launchctl print <launchd_domain>/<launchd_label>` の `state` / `last exit code`（既定ドメイン `gui/<uid>`）。
 - 最終実行時刻: `log_paths`（相対パスはサービスの `workdir` 基準）のうち最新の更新時刻。launchd は最終実行時刻を直接返さないための近似で、`log_paths` 未設定なら「不明」。
-- 状態（`state`）: `running`（実行中）/ `failed`（終了コード非 0。異常）/ `overdue`（`expected_interval` 指定時、最終実行がその 1.5 倍を超えて古い。異常）/ `never`（実行された形跡なし）/ `unloaded`（launchd に未登録）/ `unknown`（`launchctl` を実行できない）/ `ok`。優先順は running > failed > overdue > never > ok。
+- 状態（`state`）: `running`（実行中）/ `failed`（終了コード非 0。異常）/ `overdue`（`expected_interval` 指定時、最終実行がその 1.5 倍を超えて古い。異常）/ `never`（実行された形跡なし）/ `unloaded`（launchd に未登録）/ `unknown`（`launchctl` を実行できない）/ `ok`。優先順は running > failed > overdue > never > ok（実行中のまま止まったジョブのハング検知はしない）。`unloaded` は `launchctl print` が終了コード 113（未登録）を返したときのみで、それ以外の失敗は `unknown`。
 - `GET /api/scheduled`: 全 scheduled サービスの `app_id` / `service_id` / `state` / `message`（定型文）/ `schedule` / `expected_interval` / `last_run_at` / `exit_code`。ログの内容・`launchctl` の出力全文は返さない。
 - UI: 定期ジョブの行（種別・状態バッジ・スケジュール・最終実行・メッセージ）、失敗・遅延のときアプリカードに警告。一覧の定期更新（5 秒）と同じ周期で取得し、取得に失敗しても操作は継続でき、この表示のみ「取得できません」にする。デザインは `docs/design-prompt-ui-scheduled.md` の指示で更新したもの。

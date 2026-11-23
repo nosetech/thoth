@@ -128,3 +128,23 @@ apps:
     (row,) = res.json()
     assert (row["app_id"], row["service_id"], row["schedule"]) == ("sample", "job", "毎日 03:00")
     assert row["state"] in ("unloaded", "unknown")
+
+
+def test_other_nonzero_rc_is_unknown_not_unloaded(tmp_path):
+    assert status(tmp_path, lambda t: (1, "")).state == "unknown"
+
+
+def test_running_takes_precedence(tmp_path):
+    lp = [log(tmp_path, DAY * 9)]
+    st = status(tmp_path, runner(state="running", code="1"), log_paths=lp, expected_interval=DAY)
+    assert st.state == "running"
+
+
+def test_relative_log_path_uses_workdir_and_latest_wins(tmp_path):
+    (tmp_path / "a.log").write_text("x")
+    (tmp_path / "b.log").write_text("x")
+    for n, age in (("a.log", 7200), ("b.log", 600)):
+        t = (NOW - timedelta(seconds=age)).timestamp()
+        os.utime(tmp_path / n, (t, t))
+    st = status(tmp_path, runner(), log_paths=["a.log", "b.log"])
+    assert st.last_run_at == NOW - timedelta(seconds=600)

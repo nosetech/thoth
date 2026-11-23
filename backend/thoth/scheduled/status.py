@@ -21,6 +21,7 @@ from thoth.apps.schema import App, ScheduledService
 
 ScheduledState = Literal["ok", "running", "failed", "overdue", "never", "unloaded", "unknown"]
 OVERDUE_FACTOR = 1.5
+NOT_FOUND_RC = 113  # launchctl print が未登録のラベルに返す終了コード
 _TIMEOUT = 5.0
 _STATE_RE = re.compile(r"^\s*state = (\S+)", re.M)
 _EXIT_RE = re.compile(r"^\s*last exit code = (-?\d+)", re.M)
@@ -120,8 +121,10 @@ def scheduled_status(
     rc, out = runner(target)
     if rc == -1:
         return make("unknown", "launchctl を実行できません")
-    if rc != 0:
+    if rc == NOT_FOUND_RC:
         return make("unloaded", "launchd に登録されていません")
+    if rc != 0:
+        return make("unknown", "launchd の状態を取得できません")
     info = parse_print(out)
     if info.running:
         return make("running", "実行中です", info.exit_code)
