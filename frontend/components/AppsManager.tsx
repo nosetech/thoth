@@ -30,7 +30,6 @@ import {
 import { ConfirmDialog, type ConfirmCfg } from "@/components/apps/ConfirmDialog";
 import { Badge, Spinner, fmtTime, type Tone } from "@/components/apps/parts";
 import {
-  OVERALL_LABEL,
   ResultBadge,
   ResultSheet,
   type BulkView,
@@ -604,13 +603,6 @@ export function AppsManager() {
       };
       setBulkResult(view);
       setSheetOpen(true);
-      const oks = view.apps.filter((a) => a.result === "ok").length;
-      const errs = view.apps.filter((a) => a.result === "error").length;
-      toast(
-        r.status === "ok" ? "ok" : "error",
-        `一括${OP[op]}: ${OVERALL_LABEL[r.status]} (${r.status})`,
-        `${oks} アプリ成功 / ${errs} アプリ失敗`,
-      );
     } catch (e) {
       toast("error", `一括${OP[op]}に失敗`, errorMessage(e));
     } finally {

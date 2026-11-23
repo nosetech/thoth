@@ -62,7 +62,6 @@ const OVERALL = {
     desc: "完了した操作はありません",
   },
 };
-export const OVERALL_LABEL = { ok: "成功", partial: "一部失敗", failed: "失敗" };
 
 /** 一括操作の結果（cosmic-ui の Sheet。右側に開く）。 */
 export function ResultSheet({
