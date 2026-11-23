@@ -32,6 +32,7 @@ import { ConfirmDialog, type ConfirmCfg } from "@/components/apps/ConfirmDialog"
 import { Badge, Spinner, fmtTime, type Tone } from "@/components/apps/parts";
 import { ResultBadge, ResultSheet, type BulkView } from "@/components/apps/ResultSheet";
 import { useShellStatus } from "@/components/shell/ShellStatus";
+import { POLL_MS, usePolling } from "@/components/shell/usePolling";
 import { EmptyState, ErrorState, LoadingState } from "@/components/states";
 import { Button } from "@/components/ui/button";
 import {
@@ -70,9 +71,9 @@ import {
 } from "@/lib/apps";
 import { abnormalJobs, type ScheduledJob } from "@/lib/scheduled";
 import { ago, healthSummary, hkey, type HealthSample, type ServiceHealth } from "@/lib/health";
+import { appElementId, hashToElementId, serviceElementId } from "@/lib/dashboard";
 import { restartSummary, type ServiceRestart } from "@/lib/restart";
 
-const POLL_MS = 5000;
 const OPS: Action[] = ["start", "stop", "restart"];
 function omit<T>(o: Record<string, T>, k: string): Record<string, T> {
   return Object.fromEntries(Object.entries(o).filter(([key]) => key !== k));
@@ -405,12 +406,23 @@ export function AppsManager() {
     };
   }, [doRefresh]);
 
+  usePolling(!paused && screen === "normal", () => void doRefresh(false), POLL_MS);
+
+  // ダッシュボードの「APPS で確認」から来たとき、該当のアプリ・サービスへ移動して目立たせる
+  const hashHandled = useRef(false);
   useEffect(() => {
-    if (paused || screen !== "normal") return;
-    const tick = () => document.visibilityState === "visible" && void doRefresh(false);
-    const t = setInterval(tick, POLL_MS);
-    return () => clearInterval(t);
-  }, [paused, screen, doRefresh]);
+    if (screen !== "normal" || hashHandled.current) return;
+    hashHandled.current = true;
+    const id = hashToElementId(window.location.hash);
+    const el = id ? document.getElementById(id) : null;
+    if (!el) return;
+    el.scrollIntoView({ block: "center" });
+    el.focus({ preventScroll: true });
+    const flash = ["ring-2", "ring-primary"];
+    el.classList.add(...flash);
+    const t = setTimeout(() => el.classList.remove(...flash), 2000);
+    return () => clearTimeout(t);
+  }, [screen]);
 
   // 履歴シートを開いている間は、定期更新に合わせて履歴も取り直す（チラつかないよう前回値を保つ）
   useEffect(() => {
@@ -1127,7 +1139,9 @@ function AppCard({
 
   return (
     <article
-      className={`${CARD} border-l-4 ${CARD_EDGE[st]}`}
+      id={appElementId(def.id)}
+      tabIndex={-1}
+      className={`${CARD} border-l-4 outline-none ${CARD_EDGE[st]}`}
       data-status={st}
       aria-labelledby={`t-${def.id}`}
       aria-busy={!!busyOp}
@@ -1303,7 +1317,9 @@ function AppCard({
             return (
               <li
                 key={s.id}
-                className="border-primary/20 flex flex-wrap items-center gap-x-6 gap-y-2 border p-3"
+                id={serviceElementId(def.id, s.id)}
+                tabIndex={-1}
+                className="border-primary/20 flex flex-wrap items-center gap-x-6 gap-y-2 border p-3 outline-none"
               >
                 <div className="flex min-w-40 flex-1 flex-wrap items-center gap-2">
                   <span className="font-bold">{s.name || s.id}</span>
@@ -1319,7 +1335,9 @@ function AppCard({
           return (
             <li
               key={s.id}
-              className={`border-primary/20 flex flex-wrap items-center gap-x-6 gap-y-2 border p-3 ${unsup ? "opacity-70" : ""}`}
+              id={serviceElementId(def.id, s.id)}
+              tabIndex={-1}
+              className={`border-primary/20 flex flex-wrap items-center gap-x-6 gap-y-2 border p-3 outline-none ${unsup ? "opacity-70" : ""}`}
             >
               <div className="min-w-40 flex-1">
                 <span className="font-bold">{s.name || s.id}</span>{" "}
