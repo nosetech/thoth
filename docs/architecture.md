@@ -271,7 +271,7 @@ apps:
 - 使用している cosmic-ui: `Button`（操作ボタン。操作ごとに `success` / `destructive` / `secondary`）、`RadioGroup`（起動モード・失敗時の挙動）、`AlertDialog`（確認ダイアログ。キャンセルが先頭で既定フォーカス。Esc・外側クリックでキャンセル。確認ボタンは停止・再起動が赤、起動が緑。`variant` を通すよう最小限の変更あり）、`Sheet`（一括操作の結果、モバイルのドロワー）、`Toast`（通知）。状態表示は `components/states.tsx`（`LoadingState` / `EmptyState` / `ErrorState`）。
 - cosmic-ui に該当部品が無いもの（状態バッジ・スピナー、`components/apps/parts.tsx`）は、Tailwind のユーティリティによる最小限の小部品とした。
 - 共通シェル（`AppShell`）: ロゴ・ナビ・エラー件数バッジ・更新コントロール（最終更新・更新・一時停止）・バックエンド接続表示・サイドバー折りたたみ（`localStorage` の `thoth.sidebar`）・モバイルヘッダー・ドロワー（`Sheet`）。ページは `ShellStatusProvider`（`components/shell/ShellStatus.tsx`）経由で更新状態と操作をシェルへ公開する。
-- デザインとの差分（操作イメージ上の未実装）: 更新の進行バーは未実装（cosmic-ui に該当部品が無いため）。アプリ URL（API に無い）と一括操作のアプリごとの進捗バー（同期 API のため）は未実装。ダッシュボード/ログ/リソース画面の中身はデザイン対象外（別 issue）。
+- デザインとの差分（操作イメージ上の未実装）: 更新の進行バーは未実装（cosmic-ui に該当部品が無いため）。アプリ URL（API に無い）と一括操作のアプリごとの進捗バー（同期 API のため）は未実装。ログ/リソース画面の中身はデザイン対象外（別 issue）。ダッシュボードは #58。
 
 # 定期ジョブ（#14）
 
@@ -282,3 +282,14 @@ apps:
 - 状態（`state`）: `running`（実行中）/ `failed`（終了コード非 0。異常）/ `overdue`（`expected_interval` 指定時、最終実行がその 1.5 倍を超えて古い。異常）/ `never`（実行された形跡なし）/ `unloaded`（launchd に未登録）/ `unknown`（`launchctl` を実行できない）/ `ok`。優先順は running > failed > overdue > never > ok（実行中のまま止まったジョブのハング検知はしない）。`unloaded` は `launchctl print` が終了コード 113（未登録）を返したときのみで、それ以外の失敗は `unknown`。
 - `GET /api/scheduled`: 全 scheduled サービスの `app_id` / `service_id` / `state` / `message`（定型文）/ `schedule` / `expected_interval` / `last_run_at` / `exit_code`。ログの内容・`launchctl` の出力全文は返さない。
 - UI: 定期ジョブの行（種別・状態バッジ・スケジュール・最終実行・メッセージ）、失敗・遅延のときアプリカードに警告。一覧の定期更新（5 秒）と同じ周期で取得し、取得に失敗しても操作は継続でき、この表示のみ「取得できません」にする。デザインは `docs/design-prompt-ui-scheduled.md` の指示で更新したもの。
+
+# ダッシュボード（#58）
+
+`/`（`frontend/app/page.tsx`、`frontend/components/DashboardView.tsx`、`frontend/components/dashboard/useDashboardData.ts`、ロジックは `frontend/lib/dashboard.ts`）。**参照専用**で、起動・停止などの操作は置かず、各項目から `/apps` へ誘導する。デザインは `docs/design-prompt-ui-dashboard.md` の指示で追加したもの。新規の backend API は作らず、既存 API だけで構成する。
+
+- データ: `/api/apps`、`/api/apps/{id}/status`、`/api/service-health`（＋サービスごとの `/history?limit=10`、直近の推移表示用）、`/api/scheduled`、`/api/auto-restart` を 5 秒ごとに取得（`usePolling`。タブ非表示中は停止し、表示に戻ると即時 1 回更新。`/apps` と共通）。最終更新・更新・一時停止は `ShellStatusProvider` 経由でシェルへ公開する。
+- 構成: 全体サマリ（登録アプリ・実行中・停止中・一部起動、サービス稼働数。定期ジョブは稼働/停止の集計に含めない）/ 要対応（自動再起動の上限到達 → ヘルス異常・定期ジョブの失敗/遅延 → 自動再起動の試行中の順）/ アプリごとの状態 / ヘルスチェックの直近状態 / 定期ジョブ。
+- 画面状態: 通常 / 読み込み中（スケルトン）/ 空（`config/apps.yaml` への案内）/ エラー（backend 接続不可・再試行）。ヘルス・自動再起動・定期ジョブのいずれかが取得できないときは、該当ブロックだけ「取得できません＋再試行」とし、要対応には「◯◯を取得できないため含まれていません」と注記する。
+- 「APPS で確認」は `/apps#svc-<app>--<service>`（アプリのみは `#app-<app>`）へ遷移し、`AppsManager` が該当の行へスクロール・フォーカスして一時的に強調する。
+- デザインとの差分: デザインの「エラー」タイル・「アプリ エラー」の要対応は、`/apps` の操作失敗（画面内のみの状態で backend に無い）を元にしているため、ダッシュボードには含めない。backend に永続化されたアプリのエラー状態を持たせるかは別 issue で判断する。ヘルスの推移は棒の高さ（失敗は短い赤）とテキスト（`成功/件数`）で示す。
+- cosmic-ui は `Button` のみ使用し（遷移もボタン＋ルーター）、他は #8 と同じ小部品（`Badge` 等）と Tailwind のユーティリティ。独自 CSS・ダミーデータ・デモ用スイッチは含まない。
