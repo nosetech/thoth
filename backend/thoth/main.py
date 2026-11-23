@@ -4,7 +4,16 @@ from contextlib import asynccontextmanager
 import uvicorn
 from fastapi import FastAPI
 
-from thoth.api import apps, auto_restart, bulk, health, mode, process, service_health
+from thoth.api import (
+    apps,
+    auto_restart,
+    bulk,
+    health,
+    mode,
+    process,
+    scheduled,
+    service_health,
+)
 from thoth.api.deps import get_config, get_engine, get_process_manager, get_registry_holder
 from thoth.db.migrate import upgrade_db
 from thoth.health.monitor import HealthMonitor
@@ -36,6 +45,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(title="thoth", lifespan=lifespan)
 app.include_router(health.router)
 app.include_router(service_health.router)
+app.include_router(scheduled.router)
 app.include_router(auto_restart.router)
 app.include_router(apps.router)
 app.include_router(process.router)
