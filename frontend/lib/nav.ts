@@ -1,13 +1,14 @@
 export type NavItem = {
   href: string;
   label: string;
-  icon: "grid" | "apps" | "log" | "cpu";
+  icon: "grid" | "apps" | "log" | "alert" | "cpu";
 };
 
 export const NAV_ITEMS: readonly NavItem[] = [
   { href: "/", label: "DASHBOARD", icon: "grid" },
   { href: "/apps", label: "APPS", icon: "apps" },
   { href: "/logs", label: "LOGS", icon: "log" },
+  { href: "/errors", label: "ERRORS", icon: "alert" },
   { href: "/resources", label: "RESOURCES", icon: "cpu" },
 ];
 

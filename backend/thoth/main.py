@@ -8,6 +8,7 @@ from thoth.api import (
     apps,
     auto_restart,
     bulk,
+    errors,
     health,
     logs,
     mode,
@@ -17,6 +18,7 @@ from thoth.api import (
 )
 from thoth.api.deps import get_config, get_engine, get_process_manager, get_registry_holder
 from thoth.db.migrate import upgrade_db
+from thoth.errors.detector import ErrorDetector
 from thoth.health.monitor import HealthMonitor
 from thoth.process.supervisor import Supervisor
 
@@ -26,7 +28,10 @@ BACKEND_HOST = "127.0.0.1"
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    """ヘルスチェック（#12）・自動再起動（#13）の常駐ループ。設定・DB が不正なら起動しない。"""
+    """ヘルスチェック（#12）・自動再起動（#13）・エラー検知（#16）の常駐ループ。
+
+    設定・DB が不正なら起動しない。
+    """
     monitor = HealthMonitor(
         get_engine(),
         get_registry_holder(),
@@ -34,11 +39,17 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         get_config().health.retention_days,
     )
     supervisor = Supervisor(get_engine(), get_registry_holder(), get_process_manager())
+    cfg = get_config()
+    detector = ErrorDetector(
+        get_engine(), get_registry_holder(), cfg.errors.interval, cfg.errors.retention_days
+    )
     monitor.start()
     supervisor.start()
+    detector.start()
     try:
         yield
     finally:
+        await detector.stop()
         await supervisor.stop()
         await monitor.stop()
 
@@ -48,6 +59,7 @@ app.include_router(health.router)
 app.include_router(service_health.router)
 app.include_router(scheduled.router)
 app.include_router(logs.router)
+app.include_router(errors.router)
 app.include_router(auto_restart.router)
 app.include_router(apps.router)
 app.include_router(process.router)

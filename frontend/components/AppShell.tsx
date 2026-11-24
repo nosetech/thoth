@@ -14,14 +14,22 @@ import {
   Play,
   RefreshCw,
   ScrollText,
+  TriangleAlert,
 } from "lucide-react";
 import { Spinner, fmtTime } from "@/components/apps/parts";
 import { ShellStatusProvider, useShellStatus } from "@/components/shell/ShellStatus";
+import { useUnackErrors } from "@/components/shell/useUnackErrors";
 import { Button } from "@/components/ui/button";
 import { SheetCloseTrigger, SheetContent, SheetRoot, SheetTitle } from "@/components/ui/sheet";
 import { NAV_ITEMS, isActive } from "@/lib/nav";
 
-const NAV_ICON = { grid: LayoutDashboard, apps: AppWindow, log: ScrollText, cpu: Cpu };
+const NAV_ICON = {
+  grid: LayoutDashboard,
+  apps: AppWindow,
+  log: ScrollText,
+  alert: TriangleAlert,
+  cpu: Cpu,
+};
 
 /** サイドバーの折りたたみ状態（localStorage。SSR・取得不可時は展開）。 */
 const COLLAPSE_KEY = "thoth.sidebar";
@@ -145,6 +153,7 @@ function SideContent({
 }) {
   const { status } = useShellStatus();
   const conn = useConn();
+  const unack = useUnackErrors();
   return (
     <>
       <div className="flex items-center gap-3 px-1">
@@ -177,6 +186,14 @@ function SideContent({
                       aria-label={`エラー ${status?.errorCount} 件`}
                     >
                       {status?.errorCount}
+                    </span>
+                  )}
+                  {n.href === "/errors" && (unack ?? 0) > 0 && (
+                    <span
+                      className="bg-destructive text-destructive-foreground ms-auto px-1.5 text-xs"
+                      aria-label={`未確認の検知 ${unack} 件`}
+                    >
+                      {(unack ?? 0) > 99 ? "99+" : unack}
                     </span>
                   )}
                 </Link>

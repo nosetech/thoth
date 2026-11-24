@@ -17,6 +17,8 @@ from thoth.logreader.reader import (
     LEVELS,
     Level,
     LogError,
+    effective_log_format,
+    level_detector,
     list_files,
     read_after,
     read_tail,
@@ -125,10 +127,15 @@ def read_log(
     query = q or None
     try:
         path = resolve_file(app, svc, source, name or source_path(app, svc, source).name)
+        level_of = level_detector(effective_log_format(app, svc))
         if after is not None:
-            chunk = read_after(path, after, inode, lines, query=query, levels=wanted)
+            chunk = read_after(
+                path, after, inode, lines, query=query, levels=wanted, level_of=level_of
+            )
         else:
-            chunk = read_tail(path, lines, before=before, query=query, levels=wanted)
+            chunk = read_tail(
+                path, lines, before=before, query=query, levels=wanted, level_of=level_of
+            )
     except LogError as e:
         _raise(e)
     return LogReadOut(

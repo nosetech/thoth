@@ -19,3 +19,7 @@ apps:
 
 health:
   retention_days: 7           # ヘルスチェック履歴の保持期間（日）
+
+errors:
+  interval: 10                # エラー検知でログの追記分を読む間隔（秒）
+  retention_days: 30          # 検知結果の保持期間（日）

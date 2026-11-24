@@ -15,6 +15,7 @@ import {
 import { HealthBadge } from "@/components/apps/HealthParts";
 import { JobBadge } from "@/components/apps/ScheduledParts";
 import { Badge, Spinner, fmtTime, type Tone } from "@/components/apps/parts";
+import { SevBadge } from "@/components/ErrorsView";
 import { useDashboardData } from "@/components/dashboard/useDashboardData";
 import { useShellStatus } from "@/components/shell/ShellStatus";
 import { EmptyState, ErrorState } from "@/components/states";
@@ -23,6 +24,7 @@ import type { AppStatus } from "@/lib/apps";
 import {
   ATTENTION_LABEL,
   appsHref,
+  attentionHref,
   buildAttention,
   dashAppStatus,
   healthRows,
@@ -32,6 +34,7 @@ import {
   type DashApp,
 } from "@/lib/dashboard";
 import { ago, hkey, type HealthSample } from "@/lib/health";
+import { relTime } from "@/lib/errors";
 import type { ScheduledJob } from "@/lib/scheduled";
 
 const CARD = "border border-primary/30 bg-background/70 p-5";
@@ -129,6 +132,12 @@ function MiniStrip({ hist }: { hist: HealthSample[] | undefined }) {
 }
 
 function AttentionBadge({ it }: { it: AttentionItem }) {
+  if (it.kind === "log-errors" && it.errors)
+    return (
+      <SevBadge s={it.errors.severity}>
+        未確認 {it.errors.count} 件({it.errors.severity})
+      </SevBadge>
+    );
   if (it.kind === "health") return <HealthBadge state="unhealthy" err={false} />;
   if (it.kind === "job-failed") return <JobBadge state="failed" err={false} />;
   if (it.kind === "job-overdue") return <JobBadge state="overdue" err={false} />;
@@ -296,6 +305,8 @@ function Normal({ apps, d }: { apps: DashApp[]; d: ReturnType<typeof useDashboar
     restartErr: d.restartErr,
     jobs: d.jobs,
     jobsErr: d.jobsErr,
+    errors: d.errors,
+    errorsErr: d.errorsErr,
   };
   const att = buildAttention(apps, src);
   const { rows, counts: hc } = healthRows(apps, d.health);
@@ -308,6 +319,7 @@ function Normal({ apps, d }: { apps: DashApp[]; d: ReturnType<typeof useDashboar
     d.healthErr && "ヘルスチェック",
     d.restartErr && "自動再起動",
     d.jobsErr && "定期ジョブ",
+    d.errorsErr && "ログ検知",
   ].filter(Boolean);
   const retry = () => void d.refresh();
 
@@ -400,13 +412,18 @@ function Normal({ apps, d }: { apps: DashApp[]; d: ReturnType<typeof useDashboar
                       <p className="mt-1 font-bold break-words">
                         {it.appName} / {it.serviceName}
                       </p>
-                      <p className="text-foreground/70 text-xs break-words">{it.message}</p>
+                      <p
+                        className={`text-foreground/70 text-xs break-words ${it.errors ? "font-mono" : ""}`}
+                      >
+                        {it.errors && `最新 ${relTime(it.errors.latestAt, now)}: `}
+                        {it.message}
+                      </p>
                     </div>
                     <GoButton
-                      href={appsHref(it.appId, it.serviceId)}
-                      label={`${it.appName} / ${it.serviceName} の${ATTENTION_LABEL[it.kind]}を APPS で確認`}
+                      href={attentionHref(it)}
+                      label={`${it.appName} / ${it.serviceName} の${ATTENTION_LABEL[it.kind]}を ${it.errors ? "ERRORS" : "APPS"} で確認`}
                     >
-                      APPS で確認
+                      {it.errors ? "ERRORS で確認" : "APPS で確認"}
                     </GoButton>
                   </li>
                 ))}

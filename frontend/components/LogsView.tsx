@@ -2,7 +2,6 @@
 
 import { Bug, ChevronDown, CircleX, Info, Search, TriangleAlert, Unplug } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { collection } from "@zag-js/select";
 import { Badge, Spinner, type Tone } from "@/components/apps/parts";
 import { PageHeading } from "@/components/PageHeading";
 import { useLogViewer, type LogView } from "@/components/logviewer/useLogViewer";
@@ -11,16 +10,10 @@ import { EmptyState, ErrorState, LoadingState } from "@/components/states";
 import { Button } from "@/components/ui/button";
 import { CheckboxControl, CheckboxLabel, CheckboxRoot } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
-import {
-  SelectContent,
-  SelectItem,
-  SelectItemIndicator,
-  SelectItemText,
-  SelectRoot,
-  SelectTrigger,
-} from "@/components/ui/select";
+import { SelectField as Field } from "@/components/SelectField";
 import { SwitchControl, SwitchLabel, SwitchRoot } from "@/components/ui/switch";
 import { apiFetch } from "@/lib/api";
+import { logTargetFromSearch } from "@/lib/errors";
 import {
   LOG_LEVELS,
   countMatches,
@@ -46,43 +39,6 @@ const NOTICE = "border-primary/30 flex flex-wrap items-center gap-3 border p-3";
 const fileKey = (f: LogFile | undefined) => (f ? `${f.source}:${f.name}` : "");
 const fileLabel = (f: LogFile) =>
   `${f.name}(${f.is_current ? "現在" : "世代"}${f.size !== null ? `・${formatBytes(f.size)}` : ""})`;
-
-type Item = { label: string; value: string };
-
-function Field({
-  label,
-  items,
-  value,
-  onChange,
-}: {
-  label: string;
-  items: Item[];
-  value: string;
-  onChange: (v: string) => void;
-}) {
-  const col = useMemo(() => collection({ items }), [items]);
-  return (
-    <SelectRoot
-      collection={col}
-      value={[value]}
-      onValueChange={(d: { value: string[] }) => d.value[0] && onChange(d.value[0])}
-      positioning={{ sameWidth: true }}
-    >
-      <div className="flex min-w-0 flex-col gap-1">
-        <span className="text-foreground/70 text-xs">{label}</span>
-        <SelectTrigger className="min-w-0" placeholder="選択してください" />
-      </div>
-      <SelectContent>
-        {items.map((it) => (
-          <SelectItem key={it.value} item={it}>
-            <SelectItemText>{it.label}</SelectItemText>
-            <SelectItemIndicator />
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </SelectRoot>
-  );
-}
 
 function Marked({ text, query }: { text: string; query: string }) {
   return (
@@ -176,9 +132,18 @@ export function LogsView() {
     return [...m].map(([value, label]) => ({ value, label }));
   }, [targets]);
 
-  // 既定の選択: ログが設定されている最初のサービス
+  // 既定の選択: URL（ERRORS の「ログで確認」）で指定された対象、無ければログが設定されている最初のサービス
   const defaultSel = useMemo(() => {
     if (!targets?.length) return null;
+    const want = typeof window !== "undefined" ? logTargetFromSearch(window.location.search) : null;
+    const hit = want && targets.find((t) => t.app_id === want.app && t.service_id === want.service);
+    if (want && hit) {
+      const f =
+        hit.files.find(
+          (x) => x.name === want.file && (want.source === null || x.source === want.source),
+        ) ?? hit.files[0];
+      return { app: hit.app_id, svc: hit.service_id, file: fileKey(f) };
+    }
     const first = targets.find((t) => t.files.length > 0) ?? targets[0];
     return { app: first.app_id, svc: first.service_id, file: fileKey(first.files[0]) };
   }, [targets]);

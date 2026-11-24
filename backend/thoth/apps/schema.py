@@ -71,12 +71,76 @@ class AutoRestart(_Strict):
         return self
 
 
+LogLevel = Literal["error", "warn", "info", "debug"]
+
+
+def _compile(value: str, name: str) -> re.Pattern[str]:
+    try:
+        return re.compile(value)
+    except re.error as e:
+        raise ValueError(f"{name} の正規表現が不正です: {e}") from None
+
+
+class LogFormat(_Strict):
+    """ログ形式（パーサ設定）。行からレベルを取り出す正規表現と、レベル文字列の対応表。
+
+    設計: architecture.md「エラー検知（#16）」。省略時は行内のレベル語から自動推定する。
+    """
+
+    level_pattern: str = Field(min_length=1)  # 名前付きグループ level を含む正規表現
+    level_map: dict[str, LogLevel] = {}  # 取り出した文字列（大文字小文字無視）→ レベル
+
+    @model_validator(mode="after")
+    def _check(self) -> LogFormat:
+        if "level" not in _compile(self.level_pattern, "level_pattern").groupindex:
+            raise ValueError("level_pattern には名前付きグループ (?P<level>...) を含めてください")
+        if any(not k for k in self.level_map):
+            raise ValueError("level_map のキーは空にできません")
+        return self
+
+
+class ErrorRule(_Strict):
+    """エラー検知ルール。levels と pattern の両方を指定した場合は両方を満たす行に一致する。"""
+
+    id: str
+    name: str | None = None
+    severity: Literal["error", "warn"] = "error"
+    levels: list[LogLevel] = []  # 空ならレベル条件なし
+    pattern: str | None = Field(None, min_length=1)  # 行に対する正規表現（部分一致）
+    exclude: str | None = Field(None, min_length=1)  # 一致した行を除外する正規表現
+    services: list[str] = []  # 対象サービス id（空なら log_paths を持つ全サービス）
+
+    @field_validator("id")
+    @classmethod
+    def _id(cls, v: str) -> str:
+        if not _ID_RE.match(v):
+            raise ValueError(f"id は {ID_PATTERN} に一致させてください")
+        return v
+
+    @model_validator(mode="after")
+    def _check(self) -> ErrorRule:
+        if not self.levels and self.pattern is None:
+            raise ValueError("levels と pattern の少なくとも一方を指定してください")
+        if self.pattern is not None:
+            _compile(self.pattern, "pattern")
+        if self.exclude is not None:
+            _compile(self.exclude, "exclude")
+        return self
+
+
+# error_rules 省略時に使う既定ルール
+DEFAULT_ERROR_RULES: tuple[ErrorRule, ...] = (
+    ErrorRule(id="error-level", name="ERROR レベル", levels=["error"]),
+)
+
+
 class _ServiceBase(_Strict):
     id: str
     name: str | None = None
     workdir: str | None = None
     env: dict[str, str] = {}
     log_paths: list[str] = []
+    log_format: LogFormat | None = None  # 省略時はアプリの log_format（それも無ければ自動推定）
     depends_on: list[str] = []
 
     @field_validator("id")
@@ -135,6 +199,12 @@ class App(_Strict):
     env: dict[str, str] = {}
     modes: dict[Literal["local", "lan", "vpn"], Mode] = {"local": Mode()}
     services: list[Service] = Field(min_length=1)
+    log_format: LogFormat | None = None
+    error_rules: list[ErrorRule] | None = None  # 省略時は既定ルール、[] で検知しない
+
+    @property
+    def effective_error_rules(self) -> tuple[ErrorRule, ...]:
+        return DEFAULT_ERROR_RULES if self.error_rules is None else tuple(self.error_rules)
 
     @field_validator("id")
     @classmethod

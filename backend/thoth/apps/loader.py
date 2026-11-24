@@ -100,6 +100,15 @@ def _validate_semantics(apps: list[App], sources: list[str]) -> list[str]:
                     )
                 else:
                     ports[svc.port] = owner
+        rule_ids: set[str] = set()
+        for k, rule in enumerate(app.error_rules or []):
+            rp = f"{base}.error_rules[{k}]"
+            if rule.id in rule_ids:
+                errs.append(f"{rp}.id: id '{rule.id}' がアプリ内で重複しています")
+            rule_ids.add(rule.id)
+            for sid in rule.services:
+                if sid not in ids:
+                    errs.append(f"{rp}.services: 存在しないサービス '{sid}' を参照しています")
         cycle = _find_cycle({s.id: list(s.depends_on) for s in app.services})
         if cycle:
             errs.append(f"{base}.services: depends_on が循環しています: {' -> '.join(cycle)}")
