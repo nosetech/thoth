@@ -1,14 +1,5 @@
-import { PageHeading } from "@/components/PageHeading";
-import { EmptyState } from "@/components/states";
+import { LogsView } from "@/components/LogsView";
 
 export default function Page() {
-  return (
-    <>
-      <PageHeading title="ログ" />
-      <EmptyState
-        title="表示するログがありません"
-        description="この画面は今後の issue で実装します。"
-      />
-    </>
-  );
+  return <LogsView />;
 }

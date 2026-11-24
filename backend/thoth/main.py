@@ -9,6 +9,7 @@ from thoth.api import (
     auto_restart,
     bulk,
     health,
+    logs,
     mode,
     process,
     scheduled,
@@ -46,6 +47,7 @@ app = FastAPI(title="thoth", lifespan=lifespan)
 app.include_router(health.router)
 app.include_router(service_health.router)
 app.include_router(scheduled.router)
+app.include_router(logs.router)
 app.include_router(auto_restart.router)
 app.include_router(apps.router)
 app.include_router(process.router)
