@@ -16,6 +16,7 @@ thoth: ローカルPCのWebアプリを管理・監視するアプリ。設計�
 - 一括操作（#7）: `POST /api/bulk/(start|stop|restart)?on_failure=continue|abort`（CSRF 必須）。アプリごとの成否を 200 で返す。詳細は `docs/architecture.md`「一括操作（#7）」。
 - 定期ジョブ（#14）: `kind: scheduled` は `launchctl print` と `log_paths` の更新時刻・`expected_interval` で判定。`GET /api/scheduled`。詳細は `docs/architecture.md`「定期ジョブ（#14）」。
 - ダッシュボード（#58）: `/` は参照専用（既存 API のみ）。「APPS で確認」は `/apps#svc-…` / `#app-…` へ遷移して該当行を強調する。詳細は `docs/architecture.md`「ダッシュボード（#58）」。
+- ログ閲覧（#15）: `GET /api/logs`（一覧）・`GET /api/logs/read`（末尾 / `before` / `after` 追従、`q` / `levels`）。読めるのは `log_paths` と世代ファイルだけ（パスは受け取らない）。詳細は `docs/architecture.md`「ログ閲覧（#15）」。
 - 自動再起動（#13）: サービスの `auto_restart` を指定したものだけ。手動停止したものは再起動しない。`GET /api/auto-restart` で状況を返す。詳細は `docs/architecture.md`「自動再起動（#13）」。
 
 ## 画面デザインの実装ルール
@@ -27,7 +28,7 @@ Claude の Artifacts にあるデザインは、**UI の操作イメージ（レ
 - Artifact の値（色・余白など）を `globals.css` や独自 CSS に移植しない。見た目は cosmic-ui のテーマ・コンポーネントに従う。デザインと cosmic-ui の見た目が違っても、Artifact に合わせるために独自 CSS を足さない（どうしても必要なら判断を仰ぐ）。
 - デザイン（アプリ一覧・操作 UI、#8）: https://claude.ai/artifact/3z5oGchGZ3Z6JKKooaVLy5（アーティファクト名「thoth — アプリ管理 UI プロトタイプ」。一覧は https://claude.ai/artifacts）
 - 主なファイル: `index.html`（初版は約107KB。スタイル・コンポーネント・状態ロジックを1ファイルに含む単一ページ。React はコンパイル済みの `React.createElement` 形式。cosmic-ui は使っておらず、独自 CSS で cosmic-ui 風にしたモック）。`Artifact` の `list`（`scope: "files"`）で実在を確認し、ファイルが増えた・分割された場合はすべて読む。
-- 元になった指示プロンプトは `docs/design-prompt-ui-apps.md`（ヘルスチェックの状態・履歴表示 #12 は `docs/design-prompt-ui-health.md`、自動再起動の状態表示 #13 は `docs/design-prompt-ui-auto-restart.md`、定期ジョブの状態表示 #14 は `docs/design-prompt-ui-scheduled.md`、ダッシュボード #58 は `docs/design-prompt-ui-dashboard.md` で追記。`index.html` は約198KBになった）。デザインと `docs/` や issue の仕様に齟齬がある場合は、実装前にどちらを正とするか確認する。デザインが更新されたら、この節の URL・ファイル一覧も更新する。
+- 元になった指示プロンプトは `docs/design-prompt-ui-apps.md`（ヘルスチェックの状態・履歴表示 #12 は `docs/design-prompt-ui-health.md`、自動再起動の状態表示 #13 は `docs/design-prompt-ui-auto-restart.md`、定期ジョブの状態表示 #14 は `docs/design-prompt-ui-scheduled.md`、ダッシュボード #58 は `docs/design-prompt-ui-dashboard.md`、ログ閲覧 #15 は `docs/design-prompt-ui-logs.md` で追記。`index.html` は約238KBになった）。デザインと `docs/` や issue の仕様に齟齬がある場合は、実装前にどちらを正とするか確認する。デザインが更新されたら、この節の URL・ファイル一覧も更新する。
 - デザインのモックは単一 HTML のプロトタイプ。ダミーデータ・デモ用スイッチ（画面状態の切替、失敗の強制）・仮画面（ログ・リソース）は**実装に含めない**。画面構成・状態遷移・文言・操作フローを移植し、データは `/api/*` から取得する。
 - 実装は既存の基盤（`docs/architecture.md`「フロントエンドのテーマとレイアウト（#3）」: Tailwind v4・cosmic-ui・`AppShell`）の上で行う。
 

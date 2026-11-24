@@ -257,7 +257,7 @@ apps:
 
 # フロントエンドのテーマとレイアウト（#3）
 
-- UI は [cosmic-ui](https://github.com/rizznme/cosmic-ui)（サイバーパンク調）。npm パッケージではなく shadcn 方式で、コンポーネントのソースを `frontend/components/ui/` に取り込んでいる（`button` / `frame` / `sheet` / `portal` / `presence` / `alert-dialog` / `radio-group` / `toast`。Next.js 用に `"use client"` を付与）。`radio-group` は項目単位の `disabled` を通すよう最小限の変更を加えている（ファイル先頭のコメント参照）。取り込み元は `rizznme/cosmic-ui` の commit `fd06957`（2026-11-17 時点の HEAD）。追加が必要なら同リポジトリの `src/components/ui/` から同様に取り込み、ここの commit を更新する。npm の `cosmic-ui` は無関係の別パッケージなので使わない。
+- UI は [cosmic-ui](https://github.com/rizznme/cosmic-ui)（サイバーパンク調）。npm パッケージではなく shadcn 方式で、コンポーネントのソースを `frontend/components/ui/` に取り込んでいる（`button` / `frame` / `sheet` / `portal` / `presence` / `alert-dialog` / `radio-group` / `toast`、#15 で `input` / `select` / `switch` / `checkbox` を追加（依存の `@zag-js/select` / `switch` / `checkbox` は既存の zag と同じ 1.48 系）。Next.js 用に `"use client"` を付与）。`radio-group` は項目単位の `disabled` を通すよう最小限の変更を加えている（ファイル先頭のコメント参照）。取り込み元は `rizznme/cosmic-ui` の commit `fd06957`（2026-11-17 時点の HEAD）。追加が必要なら同リポジトリの `src/components/ui/` から同様に取り込み、ここの commit を更新する。npm の `cosmic-ui` は無関係の別パッケージなので使わない。
 - **画面実装の方針**: Claude の Artifacts のデザインは UI の操作イメージ（画面構成・状態遷移・文言・操作フロー）を固めるためのもので、見た目の値は再現しない。画面は cosmic-ui のコンポーネントで実装し、独自のコンポーネント・CSS は極力作らない。cosmic-ui で実装できないものは、独自実装せず判断を仰ぐ（CLAUDE.md「画面デザインの実装ルール」）。
 - スタイルは Tailwind CSS v4（`@tailwindcss/postcss`）。配色トークンは `app/globals.css` の `@theme`（`--color-primary` / `--color-accent` / `--color-background` など）。
 - **ライト/ダーク切替は設けない（ダーク固定）**。サイバーパンク調はダーク前提のデザインで、1 名利用のため切替の必要性が低い。必要になれば `data-theme` + CSS 変数方式で別 issue とする。
@@ -293,3 +293,16 @@ apps:
 - 「APPS で確認」は `/apps#svc-<app>--<service>`（アプリのみは `#app-<app>`）へ遷移し、`AppsManager` が該当の行へスクロール・フォーカスして一時的に強調する。
 - デザインとの差分: デザインの「エラー」タイル・「アプリ エラー」の要対応は、`/apps` の操作失敗（画面内のみの状態で backend に無い）を元にしているため、ダッシュボードには含めない。backend に永続化されたアプリのエラー状態を持たせるかは別 issue で判断する。ヘルスの推移は棒の高さ（失敗は短い赤）とテキスト（`成功/件数`）で示す。
 - cosmic-ui は `Button` のみ使用し（遷移もボタン＋ルーター）、他は #8 と同じ小部品（`Badge` 等）と Tailwind のユーティリティ。独自 CSS・ダミーデータ・デモ用スイッチは含まない。
+
+# ログ閲覧（#15）
+
+サービスの `log_paths` を UI で閲覧する（実装: `backend/thoth/logreader/reader.py`、`backend/thoth/api/logs.py`）。参照専用（副作用なし）。デザインは `docs/design-prompt-ui-logs.md` の指示で追加したもの。
+
+- **読める範囲**: アプリ定義の `log_paths`（相対パスはサービスの `workdir` 基準）と、その世代ファイル（`<ログ名>.<サフィックス>` / `-` / `_` 区切り。例 `app.log.1`、`app.log.2026-11-23`。`.gz` などの圧縮済みは対象外、通常ファイルのみ・シンボリックリンクは除外、最大 50 件）だけ。API はパスを受け取らず、`app_id` / `service_id` / `source`（`log_paths` の添字）/ `name`（ファイル名のみ。上記に該当しなければ 404）で指定する。
+- `GET /api/logs`: 全サービスのログファイル一覧（`app_name` / `service_name` と `source` / `name` / `is_current` / `size` / `modified_at` / `exists`）。`log_paths` 未設定のサービスは `files` が空。
+- `GET /api/logs/read`: 既定は末尾 `lines` 行（最大 1000）。`before=<offset>` でその直前の行（過去へ遡る）、`after=<offset>&inode=<inode>` で追記分（追従）。`q`（検索語、大文字小文字無視の部分一致）と `levels`（`error,warn,info,debug` のカンマ区切り）で絞り込む。応答は行（`offset` / `text` / `level`）と `start_offset` / `end_offset` / `size` / `inode` / `has_more_before` / `rotated` / `scan_limited`。ファイルなしは 404、読み取り権限なしは 403。
+- **大きいファイル**: バイトオフセット基準で末尾から 64KB ずつ遡り、必要な行数が集まれば止める。絞り込み時の走査は 1 回 16MB まで（超えたら `scan_limited`）、追従は 1 回 1MB まで。1 行は 8192 文字で切り詰め、不正な UTF-8 は置換する。
+- **ローテーション追従**: `after` 読み取りで、`inode` が変わった（リネーム方式）またはファイルが `offset` より小さくなった（copytruncate 方式）ときにローテーションとみなし、`rotated: true` で新しいファイルの末尾から返す。UI は区切り行を挟んで続ける。世代ファイルは選択肢に出す。日次ローテーションも同じ（新ファイルへの切替を検知）。
+- **書き込み中の行**: 末尾が改行で終わらない行は、更新が 5 秒止まるまで返さない（行の途中で切れて表示されるのを防ぐ）。
+- **レベル**: 行内の `CRITICAL/FATAL/ERROR/WARN(ING)/INFO/DEBUG/TRACE`（単語境界、大文字小文字無視）から `error/warn/info/debug` を推定し、無ければ `null`。
+- UI（`/logs`、`frontend/components/LogsView.tsx`・`components/logviewer/useLogViewer.ts`・`lib/logs.ts`）: cosmic-ui の `Select`（対象選択）/ `Input`（検索）/ `Checkbox`（レベル）/ `Switch`（折り返し）/ `Button` で構成。デザインとの差分: 行頭の日時・レベルは本文の一部として表示（backend は日時を解析しない）、レベルごとの件数・ファイル全体の総行数は出さない、ファイルの切替はタブでなくセレクト。アプリ→サービス→ファイルの選択、等幅・行番号・レベル表示、検索（一致強調・件数）、レベル絞り込み、追従（5 秒ごと。上へスクロールすると停止し「最新へ移動」）、ローテーションの区切り行、末尾のみ表示の注意と「さらに前を読み込む」、各状態（読み込み中・未設定・ファイルなし/読めない・取得エラー・0 件）。画面に保持する行数は 2000 件まで（初回は末尾 500 行、「さらに前を読み込む」は 300 行ずつ）。行番号は画面に読み込んだ範囲内の連番で、ファイル全体の行番号ではない（全行数は数えない）。検索・レベル絞り込みは backend で行い、一致件数は読み込んだ範囲内の件数。
