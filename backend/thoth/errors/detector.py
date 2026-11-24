@@ -152,8 +152,14 @@ def scan(path: Path, prev: Cursor | None, now: float | None = None) -> Scan:
                     with open(old, "rb") as g:
                         size = os.fstat(g.fileno()).st_size
                         if size > prev.offset:
-                            data, _ = _read_range(g, prev.offset, size)
+                            data, read_to = _read_range(g, prev.offset, size)
                             lines.extend(_lines(old.name, prev.offset, data))
+                            if read_to < size:  # 上限を超えた残りは読まない（件数だけ残す）
+                                logger.warning(
+                                    "ローテーション前のログの残り %d バイトを読みませんでした: %s",
+                                    size - read_to,
+                                    old.name,
+                                )
                 except OSError:
                     logger.warning("ローテーション前のログを読めません: %s", old)
             start = 0
