@@ -124,8 +124,3 @@ export function classifyLogError(status: number | undefined): LogErrorKind {
 export function olderCount(current: number): number {
   return Math.max(0, Math.min(OLDER_LINES, MAX_ENTRIES - current));
 }
-
-/** 先頭に追加し、上限を超えた分は末尾から捨てない（上限内の件数だけ呼び出し側で渡す）。 */
-export function prependEntries(current: LogEntry[], older: LogEntry[]): LogEntry[] {
-  return older.concat(current);
-}

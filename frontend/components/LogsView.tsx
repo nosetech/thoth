@@ -246,6 +246,7 @@ export function LogsView() {
     }
   }, [v.prependedTick]);
   const onLoadOlder = () => {
+    if (!v.hasMore || olderCount(v.entries.filter((e) => e.kind === "line").length) === 0) return;
     prevHeight.current = viewer.current?.scrollHeight ?? 0;
     setTail(false);
     void v.loadOlder();
@@ -426,6 +427,18 @@ export function LogsView() {
             )}
             <span className="ms-1.5">さらに前を読み込む</span>
           </Button>
+        </div>
+      )}
+      {v.view.status === "ok" && v.scanLimited && (
+        <div role="status" className={`${NOTICE} mb-3 border-amber-400/60 text-amber-300`}>
+          <TriangleAlert size={18} aria-hidden="true" />
+          <div>
+            <strong>絞り込みの対象はファイルの末尾の一部です</strong>
+            <p className="text-xs">
+              大きいファイルのため、検索・レベル絞り込みは末尾の約 16MB
+              だけを調べました。一致する行がこれより前にある可能性があります。
+            </p>
+          </div>
         </div>
       )}
       {v.view.status === "ok" && v.followErr && (

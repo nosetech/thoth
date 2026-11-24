@@ -137,7 +137,7 @@ def read_log(
         end_offset=chunk.end_offset,
         size=chunk.size,
         inode=chunk.inode,
-        has_more_before=chunk.start_offset > 0 and after is None,
+        has_more_before=chunk.start_offset > 0 and (after is None or chunk.rotated),
         rotated=chunk.rotated,
         scan_limited=chunk.scan_limited,
     )

@@ -311,7 +311,7 @@ def read_after(
         consumed = offset
         out: list[LogLine] = []
         for off, raw in raws:
-            consumed = off + len(raw) + 1
+            consumed = min(off + len(raw) + 1, offset + len(data))
             line = _make_line(off, raw)
             if _matches(line, query, levels):
                 out.append(line)

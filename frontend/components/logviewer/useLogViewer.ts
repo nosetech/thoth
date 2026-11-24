@@ -42,7 +42,13 @@ export function useLogViewer(
 ) {
   const [view, setView] = useState<LogView>({ status: "idle" });
   const [entries, setEntries] = useState<LogEntry[]>([]);
-  const [meta, setMeta] = useState({ startOffset: 0, endOffset: 0, size: 0, hasMore: false });
+  const [meta, setMeta] = useState({
+    startOffset: 0,
+    endOffset: 0,
+    size: 0,
+    hasMore: false,
+    scanLimited: false,
+  });
   const [followErr, setFollowErr] = useState(false);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [reload, setReload] = useState(0);
@@ -91,6 +97,7 @@ export function useLogViewer(
           endOffset: r.end_offset,
           size: r.size,
           hasMore: r.has_more_before,
+          scanLimited: r.scan_limited,
         });
         setView({ status: "ok" });
       } catch (e) {
@@ -130,7 +137,13 @@ export function useLogViewer(
           const at = hms();
           const sep: LogEntry = { kind: "rotated", key: `${my}:rot:${Date.now()}`, at };
           setEntries((cur) => appendEntries(cur, [sep, ...toEntries(r.lines, Date.now())]));
-          setMeta((m) => ({ ...m, endOffset: r.end_offset, size: r.size }));
+          setMeta({
+            startOffset: r.start_offset,
+            endOffset: r.end_offset,
+            size: r.size,
+            hasMore: false, // 旧ファイルの内容は世代ファイルで見る
+            scanLimited: false,
+          });
           announce(`ログがローテーションされました(${at})。新しいファイルから追従を続けます`);
           onRotated();
         } else if (r.lines.length > 0 || r.end_offset !== meta.endOffset) {
@@ -159,7 +172,12 @@ export function useLogViewer(
       const older = toEntries(r.lines, my);
       prepended.current = older.length;
       setEntries((cur) => older.concat(cur));
-      setMeta((m) => ({ ...m, startOffset: r.start_offset, hasMore: r.has_more_before }));
+      setMeta((m) => ({
+        ...m,
+        startOffset: r.start_offset,
+        hasMore: r.has_more_before,
+        scanLimited: r.scan_limited,
+      }));
       setPrependedTick((t) => t + 1);
       announce(`${older.length} 行を前に読み込みました`);
     } catch {
@@ -174,6 +192,7 @@ export function useLogViewer(
     entries: target ? entries : [],
     size: meta.size,
     hasMore: meta.hasMore,
+    scanLimited: meta.scanLimited,
     followErr,
     loadingOlder,
     prependedTick,

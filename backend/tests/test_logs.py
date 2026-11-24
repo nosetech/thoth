@@ -316,3 +316,15 @@ def test_api_follow_and_rotation(client):
     assert n2["rotated"] and [ln["text"] for ln in n2["lines"]] == ["INFO fresh"]
     names = [f["name"] for f in c.get("/api/logs").json()[0]["files"]]
     assert "app.log.1" in names
+
+
+def test_follow_offset_not_past_unterminated_chunk(tmp_path, monkeypatch):
+    monkeypatch.setattr(reader, "MAX_FOLLOW_BYTES", 8)
+    p = tmp_path / "a.log"
+    write(p, ["x"])
+    c = read_tail(p, 10)
+    with open(p, "a") as f:
+        f.write("y" * 30 + "\n")
+    n = read_after(p, c.end_offset, c.inode, 10, now=OLD + p.stat().st_mtime)
+    assert n.end_offset <= p.stat().st_size
+    assert n.end_offset == c.end_offset + 8
