@@ -8,6 +8,7 @@
 - `backend/` Python 3.11+ / FastAPI / SQLite（SQLAlchemy + Alembic）
 - `frontend/` Next.js（App Router）/ TypeScript
 - `config/config.yaml.example` 設定（`config.yaml` にコピーして使う。未作成でも既定値で動く）
+- `.env.example` 秘密情報（Slack の Webhook URL）。`.env` にコピーして使う（git 管理しない。未作成なら通知しない）
 
 ## 開発
 

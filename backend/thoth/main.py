@@ -1,3 +1,4 @@
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -20,7 +21,11 @@ from thoth.api.deps import get_config, get_engine, get_process_manager, get_regi
 from thoth.db.migrate import upgrade_db
 from thoth.errors.detector import ErrorDetector
 from thoth.health.monitor import HealthMonitor
+from thoth.notify import slack
+from thoth.notify.notifier import Notifier
 from thoth.process.supervisor import Supervisor
+
+logger = logging.getLogger(__name__)
 
 # backend は常に 127.0.0.1 に bind する（設定で変えられない）
 BACKEND_HOST = "127.0.0.1"
@@ -28,9 +33,9 @@ BACKEND_HOST = "127.0.0.1"
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    """ヘルスチェック（#12）・自動再起動（#13）・エラー検知（#16）の常駐ループ。
+    """ヘルスチェック（#12）・自動再起動（#13）・エラー検知（#16）・Slack 通知（#17）の常駐ループ。
 
-    設定・DB が不正なら起動しない。
+    設定・DB が不正なら起動しない。Slack の Webhook が未設定なら通知だけ無効にして起動する。
     """
     monitor = HealthMonitor(
         get_engine(),
@@ -43,12 +48,29 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     detector = ErrorDetector(
         get_engine(), get_registry_holder(), cfg.errors.interval, cfg.errors.retention_days
     )
+    notifier = None
+    url = slack.load_webhook_url()
+    if url is None:
+        logger.info("Slack の Webhook が未設定のため通知しません（%s）", slack.WEBHOOK_ENV)
+    else:
+        notifier = Notifier(
+            get_engine(),
+            get_registry_holder(),
+            get_process_manager(),
+            cfg.notify,
+            url,
+            cfg.instance,
+        )
     monitor.start()
     supervisor.start()
     detector.start()
+    if notifier is not None:
+        notifier.start()
     try:
         yield
     finally:
+        if notifier is not None:
+            await notifier.stop()
         await detector.stop()
         await supervisor.stop()
         await monitor.stop()

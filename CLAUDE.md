@@ -18,6 +18,7 @@ thoth: ローカルPCのWebアプリを管理・監視するアプリ。設計�
 - ダッシュボード（#58）: `/` は参照専用（既存 API のみ）。「APPS で確認」は `/apps#svc-…` / `#app-…` へ遷移して該当行を強調する。詳細は `docs/architecture.md`「ダッシュボード（#58）」。
 - ログ閲覧（#15）: `GET /api/logs`（一覧）・`GET /api/logs/read`（末尾 / `before` / `after` 追従、`q` / `levels`）。読めるのは `log_paths` と世代ファイルだけ（パスは受け取らない）。詳細は `docs/architecture.md`「ログ閲覧（#15）」。
 - エラー検知（#16）: アプリの `error_rules`（省略時は ERROR レベルを検知、`[]` で無効）と `log_format`（パーサ。Service で上書き可）。`GET /api/errors`・`GET /api/errors/rules`・`POST /api/errors/ack`（CSRF 必須）。初めて見るファイルは末尾から読む。詳細は `docs/architecture.md`「エラー検知（#16）」。
+- Slack 通知（#17）: Webhook は `.env` / 環境変数の `THOTH_SLACK_WEBHOOK_URL`（未設定なら通知しないだけで起動する。URL をログ・設定ファイルに出さない）。条件・抑制は `config.yaml` の `notify`。詳細は `docs/architecture.md`「Slack 通知（#17）」。
 - 自動再起動（#13）: サービスの `auto_restart` を指定したものだけ。手動停止したものは再起動しない。`GET /api/auto-restart` で状況を返す。詳細は `docs/architecture.md`「自動再起動（#13）」。
 
 ## 画面デザインの実装ルール

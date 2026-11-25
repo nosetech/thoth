@@ -23,3 +23,11 @@ health:
 errors:
   interval: 10                # エラー検知でログの追記分を読む間隔（秒）
   retention_days: 30          # 検知結果の保持期間（日）
+
+notify:                       # Slack 通知。Webhook URL は .env の THOTH_SLACK_WEBHOOK_URL（未設定なら通知しない）
+  interval: 10                # 通知対象を調べる間隔（秒）
+  min_severity: error         # 通知するエラー検知の重要度の下限（error / warn）
+  health: true                # ヘルスチェックの異常（unhealthy）と回復を通知する
+  auto_restart: true          # 自動再起動の上限到達を通知する
+  cooldown: 600               # 同じ対象を再通知しない秒数（その間の件数は明けた後にまとめて通知）
+  include_line: true          # エラー検知の通知にログ行（先頭 200 文字）を含める
