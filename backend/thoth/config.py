@@ -51,6 +51,21 @@ class ErrorsConfig:
 
 
 @dataclass(frozen=True)
+class NotifyConfig:
+    """Slack 通知（#17）。Webhook URL は設定ファイルに書かず .env / 環境変数で渡す。"""
+
+    interval: int = 10  # 通知対象を調べる間隔（秒）
+    min_severity: str = "error"  # 通知するエラー検知の重要度の下限（error / warn）
+    health: bool = True  # ヘルスチェックの異常（unhealthy）と回復を通知する
+    auto_restart: bool = True  # 自動再起動の上限到達を通知する
+    cooldown: int = 600  # 同じ対象を再通知しない秒数（その間の件数はまとめて後で通知）
+    include_line: bool = True  # エラー検知の通知にログ行（先頭 200 文字）を含める
+
+
+NOTIFY_SEVERITIES = ("error", "warn")
+
+
+@dataclass(frozen=True)
 class AppsConfig:
     path: str | None = None  # 未指定時は DEFAULT_APPS_PATH（無くても可）。明示時は必須
 
@@ -65,6 +80,7 @@ class Config:
     apps: AppsConfig = field(default_factory=AppsConfig)
     health: HealthConfig = field(default_factory=HealthConfig)
     errors: ErrorsConfig = field(default_factory=ErrorsConfig)
+    notify: NotifyConfig = field(default_factory=NotifyConfig)
 
     def resolve_path(self, value: str) -> Path:
         """相対パスは backend/ 基準で解決する。"""
@@ -102,6 +118,29 @@ def _positive(value: Any, name: str) -> int:
     return value
 
 
+def _bool(value: Any, name: str) -> bool:
+    if not isinstance(value, bool):
+        raise ConfigError(f"{name} は true / false で指定してください")
+    return value
+
+
+def _notify(data: dict[str, Any]) -> NotifyConfig:
+    d = NotifyConfig()
+    sev = data.get("min_severity", d.min_severity)
+    if sev not in NOTIFY_SEVERITIES:
+        raise ConfigError(
+            f"notify.min_severity は {' / '.join(NOTIFY_SEVERITIES)} で指定してください"
+        )
+    return NotifyConfig(
+        interval=_positive(data.get("interval", d.interval), "notify.interval"),
+        min_severity=sev,
+        health=_bool(data.get("health", d.health), "notify.health"),
+        auto_restart=_bool(data.get("auto_restart", d.auto_restart), "notify.auto_restart"),
+        cooldown=_positive(data.get("cooldown", d.cooldown), "notify.cooldown"),
+        include_line=_bool(data.get("include_line", d.include_line), "notify.include_line"),
+    )
+
+
 def parse_config(raw: Any) -> Config:
     if raw is None:
         raw = {}
@@ -116,6 +155,7 @@ def parse_config(raw: Any) -> Config:
         "apps",
         "health",
         "errors",
+        "notify",
     }
     if unknown:
         raise ConfigError(f"未知のキーがあります: {sorted(unknown)}")
@@ -128,6 +168,7 @@ def parse_config(raw: Any) -> Config:
     ap = _section(raw.get("apps"), "apps", AppsConfig)
     hl = _section(raw.get("health"), "health", HealthConfig)
     er = _section(raw.get("errors"), "errors", ErrorsConfig)
+    nt = _section(raw.get("notify"), "notify", NotifyConfig)
     days = _positive(hl.get("retention_days", d.health.retention_days), "health.retention_days")
     return Config(
         instance=_nonempty_str(raw.get("instance", d.instance), "instance"),
@@ -143,6 +184,7 @@ def parse_config(raw: Any) -> Config:
                 er.get("retention_days", d.errors.retention_days), "errors.retention_days"
             ),
         ),
+        notify=_notify(nt),
     )
 
 
