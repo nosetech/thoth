@@ -2,6 +2,7 @@ import { appStatus, type AppDef, type AppStatus, type ServiceStatus } from "./ap
 import { hkey, type HealthSample, type HealthState, type ServiceHealth } from "./health.ts";
 import { rkey, type ServiceRestart } from "./restart.ts";
 import { isScheduledAbnormal, type ScheduledJob } from "./scheduled.ts";
+import { errorsHref, type ServiceErrorSummary } from "./errors.ts";
 
 /** ダッシュボードが扱うアプリ（定義 + サービスの現在状態）。 */
 export type DashApp = { def: AppDef; statuses: ServiceStatus[] };
@@ -60,7 +61,7 @@ export function summarize(apps: DashApp[]): DashCounts {
 }
 
 export type AttentionKind =
-  "restart-gave-up" | "health" | "job-failed" | "job-overdue" | "retrying";
+  "restart-gave-up" | "health" | "job-failed" | "job-overdue" | "retrying" | "log-errors";
 
 export type AttentionItem = {
   /** 一意なキー。 */
@@ -73,6 +74,8 @@ export type AttentionItem = {
   serviceId: string;
   serviceName: string;
   message: string;
+  /** ログ検知の項目のみ: 未確認件数と、最新の検知の重要度・日時 */
+  errors?: { count: number; severity: "error" | "warn"; latestAt: string };
 };
 
 export const ATTENTION_LABEL: Record<AttentionKind, string> = {
@@ -81,6 +84,7 @@ export const ATTENTION_LABEL: Record<AttentionKind, string> = {
   "job-failed": "定期ジョブ 失敗",
   "job-overdue": "定期ジョブ 遅延",
   retrying: "自動再起動 試行中",
+  "log-errors": "ログ検知",
 };
 
 export type Sources = {
@@ -90,11 +94,43 @@ export type Sources = {
   restartErr: boolean;
   jobs: Record<string, ScheduledJob>;
   jobsErr: boolean;
+  /** 未確認の検知があるサービス（エラー検知 #16）。 */
+  errors?: ServiceErrorSummary[];
+  errorsErr?: boolean;
 };
+
+/** 要対応の項目の移動先（ログ検知は ERRORS、それ以外は APPS）。 */
+export function attentionHref(it: AttentionItem): string {
+  return it.kind === "log-errors"
+    ? errorsHref(it.appId, it.serviceId)
+    : appsHref(it.appId, it.serviceId);
+}
+
+const EXCERPT = 120;
 
 /** 要対応の一覧（急ぐ順）。取得できない情報源の項目は含めない。 */
 export function buildAttention(apps: DashApp[], src: Sources): AttentionItem[] {
   const items: AttentionItem[] = [];
+  if (!src.errorsErr) {
+    for (const e of src.errors ?? []) {
+      const a = apps.find((x) => x.def.id === e.app_id);
+      if (!a || e.unacknowledged === 0) continue;
+      const severity = e.error > 0 ? "error" : "warn";
+      const line =
+        e.latest_line.length > EXCERPT ? `${e.latest_line.slice(0, EXCERPT)}…` : e.latest_line;
+      items.push({
+        id: `${hkey(e.app_id, e.service_id)}#det`,
+        kind: "log-errors",
+        sev: severity === "error" ? 2 : 3,
+        appId: e.app_id,
+        appName: a.def.name,
+        serviceId: e.service_id,
+        serviceName: a.def.services.find((s) => s.id === e.service_id)?.name || e.service_name,
+        message: line,
+        errors: { count: e.unacknowledged, severity, latestAt: e.latest_at },
+      });
+    }
+  }
   for (const a of apps) {
     for (const s of a.def.services) {
       const key = hkey(a.def.id, s.id);

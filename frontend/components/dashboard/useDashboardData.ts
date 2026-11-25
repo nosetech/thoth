@@ -8,6 +8,7 @@ import { MINI_STRIP_SIZE, type DashApp } from "@/lib/dashboard";
 import { hkey, type HealthSample, type ServiceHealth } from "@/lib/health";
 import { rkey, type ServiceRestart } from "@/lib/restart";
 import type { ScheduledJob } from "@/lib/scheduled";
+import type { ErrorList, ServiceErrorSummary } from "@/lib/errors";
 
 const byKey = <T>(list: T[], key: (t: T) => string): Record<string, T> =>
   Object.fromEntries(list.map((t) => [key(t), t]));
@@ -27,6 +28,8 @@ export function useDashboardData(paused: boolean) {
   const [restartErr, setRestartErr] = useState(false);
   const [jobs, setJobs] = useState<Record<string, ScheduledJob>>({});
   const [jobsErr, setJobsErr] = useState(false);
+  const [errors, setErrors] = useState<ServiceErrorSummary[]>([]);
+  const [errorsErr, setErrorsErr] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [cycle, setCycle] = useState(0);
@@ -50,6 +53,7 @@ export function useDashboardData(paused: boolean) {
       const healthP = orNull(apiFetch<ServiceHealth[]>("/api/service-health"));
       const restartP = orNull(apiFetch<ServiceRestart[]>("/api/auto-restart"));
       const jobsP = orNull(apiFetch<ScheduledJob[]>("/api/scheduled"));
+      const errorsP = orNull(apiFetch<ErrorList>("/api/errors", { query: { limit: 1 } }));
       const defs = await apiFetch<AppDef[]>("/api/apps");
       const views = await Promise.all(
         defs.map(async (def): Promise<DashApp> => {
@@ -59,7 +63,7 @@ export function useDashboardData(paused: boolean) {
           return { def, statuses };
         }),
       );
-      const [hl, rl, jl] = await Promise.all([healthP, restartP, jobsP]);
+      const [hl, rl, jl, el] = await Promise.all([healthP, restartP, jobsP, errorsP]);
       // 履歴は一覧表示用の小さな推移のみ。取得できないサービスは推移なしにする
       const hist = hl
         ? await Promise.all(
@@ -85,6 +89,8 @@ export function useDashboardData(paused: boolean) {
       setRestartErr(!rl);
       if (jl) setJobs(byKey(jl, (j) => hkey(j.app_id, j.service_id)));
       setJobsErr(!jl);
+      if (el) setErrors(el.summary.services);
+      setErrorsErr(!el);
       setApps(views);
       setLoadError(false);
       setPollErr(0);
@@ -136,6 +142,8 @@ export function useDashboardData(paused: boolean) {
     restartErr,
     jobs,
     jobsErr,
+    errors,
+    errorsErr,
     lastUpdated,
     refreshing,
     cycle,

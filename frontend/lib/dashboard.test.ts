@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   appsHref,
+  attentionHref,
   buildAttention,
   dashAppStatus,
   hashToElementId,
@@ -152,4 +153,37 @@ test("appsHref と hashToElementId は往復できる", () => {
   assert.equal(hashToElementId("#app-a"), "app-a");
   assert.equal(hashToElementId("#other"), null);
   assert.equal(hashToElementId("#app-%E0%A4%A"), null);
+});
+
+test("buildAttention: 未確認の検知があるサービスを ERRORS への項目にする", () => {
+  const det = (app_id: string, service_id: string, error: number, warn: number) => ({
+    app_id,
+    app_name: app_id,
+    service_id,
+    service_name: service_id,
+    unacknowledged: error + warn,
+    error,
+    warn,
+    latest_at: "2026-11-25T00:00:00Z",
+    latest_line: "x".repeat(200),
+    latest_severity: "error" as const,
+  });
+  const items = buildAttention(apps, {
+    ...empty,
+    errors: [det("a", "web", 2, 1), det("b", "api", 0, 3), det("zz", "web", 1, 0)],
+  });
+  const logs = items.filter((i) => i.kind === "log-errors");
+  assert.deepEqual(
+    logs.map((i) => [i.appId, i.serviceId, i.errors?.count, i.errors?.severity, i.sev]),
+    [
+      ["a", "web", 3, "error", 2],
+      ["b", "api", 3, "warn", 3],
+    ],
+  ); // 未登録のアプリ（zz）は含めない
+  assert.equal(logs[0].message.length, 121);
+  assert.equal(attentionHref(logs[0]), "/errors?app=a&service=web");
+  assert.equal(
+    buildAttention(apps, { ...empty, errors: [det("a", "web", 1, 0)], errorsErr: true }).length,
+    0,
+  );
 });

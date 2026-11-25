@@ -12,12 +12,13 @@ from __future__ import annotations
 import os
 import re
 import stat
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
 
-from thoth.apps.schema import App, Service
+from thoth.apps.schema import App, LogFormat, Service
 
 Level = Literal["error", "warn", "info", "debug"]
 LEVELS: tuple[Level, ...] = ("error", "warn", "info", "debug")
@@ -93,7 +94,7 @@ def source_path(app: App, svc: Service, source: int) -> Path:
     return service_dir(app, svc) / Path(svc.log_paths[source]).expanduser()
 
 
-def _is_generation(base: str, name: str) -> bool:
+def is_generation(base: str, name: str) -> bool:
     if name == base or not name.startswith(base) or name.endswith(_COMPRESSED):
         return False
     return name[len(base)] in ".-_" and len(name) > len(base) + 1
@@ -110,7 +111,7 @@ def list_files(app: App, svc: Service) -> list[LogFile]:
         except OSError:
             entries = []
         for e in entries:
-            if not _is_generation(path.name, e.name):
+            if not is_generation(path.name, e.name):
                 continue
             try:
                 st = e.stat(follow_symlinks=False)
@@ -146,7 +147,7 @@ def resolve_file(app: App, svc: Service, source: int, name: str) -> Path:
         raise LogError("not_found", "log file not found")
     if name == base.name:
         return base
-    if not _is_generation(base.name, name):
+    if not is_generation(base.name, name):
         raise LogError("not_found", "log file not found")
     path = base.parent / name
     try:
@@ -157,16 +158,48 @@ def resolve_file(app: App, svc: Service, source: int, name: str) -> Path:
     return path
 
 
+LevelOf = Callable[[str], Level | None]
+
+
 def detect_level(text: str) -> Level | None:
     m = _LEVEL_RE.search(text)
     return _LEVEL_MAP[m.group(1).lower()] if m else None
 
 
-def _make_line(offset: int, raw: bytes) -> LogLine:
+def effective_log_format(app: App, svc: Service) -> LogFormat | None:
+    """サービスの log_format、無ければアプリの log_format（どちらも無ければ None = 自動推定）。"""
+    return svc.log_format or app.log_format
+
+
+def level_detector(fmt: LogFormat | None) -> LevelOf:
+    """パーサ設定からレベル判定関数を作る。
+
+    ``level_pattern`` の ``level`` グループを取り出し、``level_map``（大文字小文字無視）、
+    無ければ既定の対応（ERROR / WARN など）でレベルにする。一致しない行は None。
+    """
+    if fmt is None:
+        return detect_level
+    pattern = re.compile(fmt.level_pattern)
+    mapping = {**_LEVEL_MAP, **{k.lower(): v for k, v in fmt.level_map.items()}}
+
+    def of(text: str) -> Level | None:
+        m = pattern.search(text)
+        raw = m.group("level") if m else None
+        return mapping.get(raw.strip().lower()) if raw else None
+
+    return of
+
+
+def decode_line(raw: bytes) -> str:
     text = raw.decode("utf-8", errors="replace").rstrip("\r\n")
     if len(text) > MAX_LINE_CHARS:
         text = text[:MAX_LINE_CHARS] + " …"
-    return LogLine(offset, text, detect_level(text))
+    return text
+
+
+def _make_line(offset: int, raw: bytes, level_of: LevelOf = detect_level) -> LogLine:
+    text = decode_line(raw)
+    return LogLine(offset, text, level_of(text))
 
 
 def _matches(line: LogLine, query: str | None, levels: frozenset[str] | None) -> bool:
@@ -185,7 +218,7 @@ def _open(path: Path):
     return f
 
 
-def _end_of_complete(f, size: int, mtime: float, now: float) -> int:
+def end_of_complete(f, size: int, mtime: float, now: float) -> int:
     """完結した行の終端オフセット。末尾の未完行は、更新が止まっていれば含める。"""
     if size == 0:
         return 0
@@ -204,7 +237,7 @@ def _end_of_complete(f, size: int, mtime: float, now: float) -> int:
     return 0
 
 
-def _split_lines(base: int, data: bytes) -> list[tuple[int, bytes]]:
+def split_lines(base: int, data: bytes) -> list[tuple[int, bytes]]:
     """``base`` から始まる完結した行の並び（末尾が改行で終わるなら空要素は作らない）。"""
     parts = data.split(b"\n")
     if parts and parts[-1] == b"":
@@ -225,13 +258,14 @@ def read_tail(
     query: str | None = None,
     levels: frozenset[str] | None = None,
     now: float | None = None,
+    level_of: LevelOf = detect_level,
 ) -> LogChunk:
     """末尾（``before`` 指定時はその直前）から最大 ``lines`` 行を、ファイル全体を読まずに返す。"""
     lines = max(1, min(lines, MAX_LINES))
     now = now if now is not None else datetime.now(UTC).timestamp()
     with _open(path) as f:
         st = os.fstat(f.fileno())
-        end = _end_of_complete(f, st.st_size, st.st_mtime, now)
+        end = end_of_complete(f, st.st_size, st.st_mtime, now)
         tail_end = end
         if before is not None:
             end = max(0, min(before, end))
@@ -257,11 +291,13 @@ def read_tail(
                 body_base, body, buf = start + idx + 1, buf[idx + 1 :], buf[: idx + 1]
             else:
                 body_base, body, buf = 0, buf, b""
-            raws = _split_lines(body_base, body)
+            raws = split_lines(body_base, body)
             if raws:
                 frontier = raws[0][0]
             matched = [
-                ln for off, raw in raws if _matches(ln := _make_line(off, raw), query, levels)
+                ln
+                for off, raw in raws
+                if _matches(ln := _make_line(off, raw, level_of), query, levels)
             ]
             result = (matched + result)[-lines:]
         chunk.lines = result
@@ -283,6 +319,7 @@ def read_after(
     query: str | None = None,
     levels: frozenset[str] | None = None,
     now: float | None = None,
+    level_of: LevelOf = detect_level,
 ) -> LogChunk:
     """``offset`` 以降に追記された行を返す（追従用）。
 
@@ -294,10 +331,10 @@ def read_after(
     with _open(path) as f:
         st = os.fstat(f.fileno())
         if (inode is not None and st.st_ino != inode) or st.st_size < offset:
-            chunk = read_tail(path, lines, query=query, levels=levels, now=now)
+            chunk = read_tail(path, lines, query=query, levels=levels, now=now, level_of=level_of)
             chunk.rotated = True
             return chunk
-        end = _end_of_complete(f, st.st_size, st.st_mtime, now)
+        end = end_of_complete(f, st.st_size, st.st_mtime, now)
         chunk = LogChunk(start_offset=offset, end_offset=offset, size=st.st_size, inode=st.st_ino)
         if end <= offset:
             return chunk
@@ -307,12 +344,12 @@ def read_after(
             i = data.rfind(b"\n")
             if i >= 0:
                 data = data[: i + 1]
-        raws = _split_lines(offset, data)[:lines]
+        raws = split_lines(offset, data)[:lines]
         consumed = offset
         out: list[LogLine] = []
         for off, raw in raws:
             consumed = min(off + len(raw) + 1, offset + len(data))
-            line = _make_line(off, raw)
+            line = _make_line(off, raw, level_of)
             if _matches(line, query, levels):
                 out.append(line)
         chunk.lines = out

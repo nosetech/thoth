@@ -127,3 +127,49 @@ class ServiceSupervision(Base):
     updated_at: Mapped[datetime] = mapped_column(
         UtcDateTime, nullable=False, default=lambda: datetime.now(UTC)
     )
+
+
+class LogCursor(Base):
+    """エラー検知の読み取り位置（log_paths の添字ごと）。thoth 再起動後も続きから読む。
+
+    path は記録時のパス。log_paths が変わって別のファイルを指すようになったら読み直す。
+    """
+
+    __tablename__ = "log_cursor"
+
+    app_id: Mapped[str] = mapped_column(String, primary_key=True)
+    service_id: Mapped[str] = mapped_column(String, primary_key=True)
+    source: Mapped[int] = mapped_column(Integer, primary_key=True)
+    path: Mapped[str] = mapped_column(Text, nullable=False)
+    inode: Mapped[int] = mapped_column(Integer, nullable=False)
+    offset: Mapped[int] = mapped_column(Integer, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        UtcDateTime, nullable=False, default=lambda: datetime.now(UTC)
+    )
+
+
+class ErrorEvent(Base):
+    """エラー検知ルールに一致したログ行（1 行につき最初に一致したルールで 1 件）。
+
+    rule_name・file_name は検知時点の値を残す（ルールやファイルが後で変わっても表示できるように）。
+    """
+
+    __tablename__ = "error_event"
+    __table_args__ = (
+        Index("ix_error_event_detected", "detected_at"),
+        Index("ix_error_event_service", "app_id", "service_id", "acknowledged_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    app_id: Mapped[str] = mapped_column(String, nullable=False)
+    service_id: Mapped[str] = mapped_column(String, nullable=False)
+    rule_id: Mapped[str] = mapped_column(String, nullable=False)
+    rule_name: Mapped[str] = mapped_column(String, nullable=False)
+    severity: Mapped[str] = mapped_column(String, nullable=False)  # error / warn
+    level: Mapped[str | None] = mapped_column(String, nullable=True)
+    source: Mapped[int] = mapped_column(Integer, nullable=False)
+    file_name: Mapped[str] = mapped_column(String, nullable=False)
+    offset: Mapped[int] = mapped_column(Integer, nullable=False)
+    line: Mapped[str] = mapped_column(Text, nullable=False)
+    detected_at: Mapped[datetime] = mapped_column(UtcDateTime, nullable=False)
+    acknowledged_at: Mapped[datetime | None] = mapped_column(UtcDateTime, nullable=True)

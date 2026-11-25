@@ -306,3 +306,52 @@ apps:
 - **書き込み中の行**: 末尾が改行で終わらない行は、更新が 5 秒止まるまで返さない（行の途中で切れて表示されるのを防ぐ）。
 - **レベル**: 行内の `CRITICAL/FATAL/ERROR/WARN(ING)/INFO/DEBUG/TRACE`（単語境界、大文字小文字無視）から `error/warn/info/debug` を推定し、無ければ `null`。
 - UI（`/logs`、`frontend/components/LogsView.tsx`・`components/logviewer/useLogViewer.ts`・`lib/logs.ts`）: cosmic-ui の `Select`（対象選択）/ `Input`（検索）/ `Checkbox`（レベル）/ `Switch`（折り返し）/ `Button` で構成。デザインとの差分: 行頭の日時・レベルは本文の一部として表示（backend は日時を解析しない）、レベルごとの件数・ファイル全体の総行数は出さない、ファイルの切替はタブでなくセレクト。アプリ→サービス→ファイルの選択、等幅・行番号・レベル表示、検索（一致強調・件数）、レベル絞り込み、追従（5 秒ごと。上へスクロールすると停止し「最新へ移動」）、ローテーションの区切り行、末尾のみ表示の注意と「さらに前を読み込む」、各状態（読み込み中・未設定・ファイルなし/読めない・取得エラー・0 件）。画面に保持する行数は 2000 件まで（初回は末尾 500 行、「さらに前を読み込む」は 300 行ずつ）。行番号は画面に読み込んだ範囲内の連番で、ファイル全体の行番号ではない（全行数は数えない）。検索・レベル絞り込みは backend で行い、一致件数は読み込んだ範囲内の件数。
+
+# エラー検知（#16）
+
+サービスの `log_paths` を常時監視し、アプリごとのルールに一致した行を「検知結果」として保存・表示する（実装: `backend/thoth/errors/detector.py`、`backend/thoth/api/errors.py`）。ルールとログ形式は YAML（`config/apps.yaml`）が正で、画面は参照のみ。デザインは `docs/design-prompt-ui-errors.md` の指示で追加したもの。
+
+## 設定
+App に `error_rules` と `log_format`、Service に `log_format` を書く（未知キーはエラー）。
+
+```yaml
+apps:
+  - id: deep-tracker
+    error_rules:            # 省略時は既定ルール（ERROR レベルの行を検知）。[] で検知しない
+      - id: exception       # アプリ内で一意。^[a-z][a-z0-9-]{0,31}$
+        name: 例外           # 表示名（省略時 id）
+        severity: error     # error（既定）/ warn
+        levels: [error]     # レベル条件（error / warn / info / debug。空なら条件なし）
+        pattern: "Traceback|Exception"   # 行に対する正規表現（部分一致。(?i) で大文字小文字無視）
+        exclude: "HealthCheck"           # 一致しても除外する正規表現
+        services: [backend] # 対象サービス（省略時は log_paths を持つ全サービス）
+    log_format:             # パーサ設定（省略時は自動推定）。Service 側の log_format が優先
+      level_pattern: '^\S+ (?P<level>[EWID])/'   # 名前付きグループ level 必須
+      level_map: { E: error, W: warn, I: info, D: debug }  # 大文字小文字無視。無いものは既定の対応
+```
+
+- ルールは `levels` と `pattern` の少なくとも一方が必須（両方なら両方を満たす行）。1 行が複数のルールに一致しても、**定義順で最初に一致したルール**で 1 件だけ記録する。
+- `services` に存在しないサービス・ルール id の重複は読み込み時にエラー。正規表現は読み込み時にコンパイルして検証する。
+- `log_format` のレベルはログ閲覧（#15）のレベル表示・絞り込みにも使う。`level_pattern` に一致しない行のレベルは `null`（自動推定にはフォールバックしない）。
+- `config.yaml` の `errors.interval`（既定 10 秒）・`errors.retention_days`（既定 30 日）。
+
+## 検知の動作
+- backend の `lifespan` で常駐ループ（`ErrorDetector`）を動かし、`errors.interval` ごとに対象ファイルの追記分を読む。ファイルの読み取り・保存はスレッドで行い、1 ファイルの失敗で他を止めない。
+- 読み取り位置は `log_cursor`（app_id / service_id / source ごとの path・inode・offset）に保存し、thoth 再起動後も続きから読む。**初めて見るファイル（`log_paths` の変更を含む）は末尾から読み始める**（過去のログを一度に検知しない）。ファイルが無い・読めない間は位置を保ったまま次回に再試行。
+- ローテーション: inode が変わったら（リネーム方式）同じディレクトリの世代ファイルから旧 inode のファイルを探して残りを読み（1MB まで。超えた分は読まずにサーバーログへ残す）、新しいファイルは先頭から読む。ファイルが縮んだら（copytruncate 方式）先頭から読み直す。
+- 1 回に読むのは 1 ファイル 1MB まで（残りは次回）。記録は 1 ファイル 1 回 100 件まで（超えた分はサーバーログに件数だけ残す）。行は 2000 文字で切り詰めて保存。末尾が改行で終わらない行はログ閲覧と同じく更新が 5 秒止まるまで待つ。
+- 検知結果は `error_event`（ルール名・ファイル名は検知時点の値を保存）。保持期間を過ぎたものは起動時と 1 時間ごとに削除。
+- 複数行にわたるスタックトレースは行単位で判定する（継続行の結合は未対応）。
+
+## API
+| メソッド・パス | 内容 |
+|---|---|
+| `GET /api/errors` | 検知結果（新しい順）。`app_id` / `service_id` / `rule_id` / `severity` / `include_acknowledged`（既定 false）/ `limit`（既定 200・最大 1000）。応答は `events`・`total`（条件に一致する件数）・`summary`（条件に依らない未確認の集計: 重要度別件数・最終検知日時・サービスごとの件数と最新行） |
+| `GET /api/errors/rules` | アプリごとのルール（`mode`: `default` / `custom` / `disabled`）と、サービスごとの監視有無・適用中のパーサ（`auto` / `regex` と、`service` / `app` のどちらの設定か）。`monitored_services` は監視対象のサービス数 |
+| `POST /api/errors/ack` | 確認済みにする（CSRF 必須）。`{"ids": [...]}` か、`{"all": true, app_id?, service_id?, rule_id?, severity?}`（条件に一致する未確認をすべて）。応答は `{"acknowledged": n}` |
+
+## UI
+- `/errors`（`frontend/components/ErrorsView.tsx`・`lib/errors.ts`）: 概要（未確認 error / warn 件数・最終検知・アプリ別の未確認。押すとそのアプリで絞り込み・監視中サービス数）、「検知結果」「ルール」のタブ。検知結果はフィルタ（アプリ・サービス・ルール・重要度・確認済みも表示）、行ごとの「確認済みにする」「ログで確認」（`/logs?app=&service=&source=&file=` で LOGS を対象選択済みで開く）、表示中の未確認をまとめて確認（確認ダイアログ）。5 秒ごとに更新し、一覧が表示済みのときは新着を差し込まず「新しい検知 n 件を表示」に溜める（一覧が空なら直接表示）。各状態（読み込み中・検知なし・フィルタ結果 0 件・取得エラー・監視対象なし）。ルールタブは参照のみ。
+- ナビの ERRORS に未確認件数のバッジ（`components/shell/useUnackErrors.ts`、5 秒ごと。確認済みにしたら即時更新）。
+- ダッシュボードの「要対応」に、未確認の検知があるサービスを「ログ検知」として追加（件数・最新行の抜粋。「ERRORS で確認」で `/errors?app=&service=` へ）。取得できないときは「ログ検知を取得できないため含まれていません」。
+- デザインとの差分: 行番号ではなくファイル名のみ表示（backend はバイトオフセットで管理し、行番号は数えない）。ルールの設定キーは `error_rules` / `log_format`（デザインの `error_detection` ではない）。パーサはアプリ単位ではなくサービスごとに表示（Service 側の `log_format` で上書きできるため）。タブ・重要度の選択は cosmic-ui の `Button` / `RadioGroup` で構成。一覧の取得は最新 200 件まで。

@@ -8,11 +8,18 @@ apps:
       local: {}
       lan: { env: { LAN_IP: "${LAN_IP}" } }
       vpn: { env: { TAILSCALE_IP: "${TAILSCALE_IP}" } }
+    # エラー検知（省略時は ERROR レベルの行を検知、[] で検知しない）
+    error_rules:
+      - { id: exception, name: 例外, levels: [error], exclude: "HealthCheck" }
+      - { id: slow, name: 遅いリクエスト, severity: warn, pattern: "took \\d{4,}ms", services: [backend] }
+    # ログ形式（省略時は行内の ERROR / WARN などから推定）。サービスごとにも指定できる
+    # log_format: { level_pattern: '^\S+ (?P<level>[EWID])/', level_map: { E: error, W: warn, I: info, D: debug } }
     services:
       - id: backend
         kind: process
         start: [uv, run, python, -m, app.main]
         workdir: backend
+        log_paths: [logs/app.log]   # 閲覧・エラー検知の対象（workdir 基準）
         port: 8000
         healthcheck: { type: http, url: "http://127.0.0.1:8000/api/health" }
         auto_restart: { max_retries: 5 }   # 異常時に自動再起動（省略時は無効）
